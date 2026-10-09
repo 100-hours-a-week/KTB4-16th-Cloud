@@ -1,0 +1,8 @@
+project_id        = "project-7b071b48-8637-467a-80d"
+domain            = "staging.example.com" 
+image_bucket_name = "mulo-staging-1"
+runtime_enabled   = true # 최초 배포는 true, 중지할 때 false로 변경 후 terraform apply
+
+region      = "asia-northeast3"
+zone        = "asia-northeast3-a"
+subnet_cidr = "10.21.0.0/24"

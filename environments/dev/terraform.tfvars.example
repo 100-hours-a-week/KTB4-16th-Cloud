@@ -1,0 +1,7 @@
+project_id        = "project-7b071b48-8637-467a-80d"
+image_bucket_name = "mulo-develop-1"
+domain            = "dhkiss01.p-e.kr"
+runtime_enabled   = true # 최초 배포는 true, 중지할 때 false로 변경 후 terraform apply
+
+# region = "asia-northeast3"
+# zone   = "asia-northeast3-a"
