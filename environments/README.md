@@ -36,7 +36,7 @@
 1. Terraform 1.6 이상과 GCP 프로젝트를 준비하고 `gcloud auth application-default login`으로 인증합니다. 프로젝트에는 결제 계정이 연결되어 있어야 합니다.
 2. 환경 폴더에서 `terraform.tfvars.example`을 `terraform.tfvars`로 복사합니다. `project_id`, `domain`, `image_bucket_name`을 실제 환경에 맞게 확인합니다. 세 환경의 예시 프로젝트 ID는 같지만 반드시 같을 필요는 없습니다.
 3. **GCS 버킷 이름은 전역에서 유일하고 환경별로 달라야 합니다.** 현재 개발·스테이징 예시 둘 다 `mulo-develop-1`이므로 하나는 바꿔야 합니다. 스테이징 예시의 `staging.example.com`도 실제 사용할 도메인으로 바꿔야 합니다. 운영 예시의 프로젝트·도메인·버킷도 실제 운영 값인지 확인합니다.
-4. 스테이징·운영의 `service_ports`와 `health_paths` 기본값이 앱의 실제 수신 포트와 HTTP 200 응답 경로에 맞는지 확인합니다. 필요한 VM 시작 스크립트는 `startup_scripts`에 넣습니다. 기본값 `{}`이면 VM 생성 후 앱은 자동으로 배포되지 않습니다.
+4. 스테이징·운영의 `service_ports`와 `health_paths` 기본값이 앱의 실제 수신 포트와 HTTP 200 응답 경로에 맞는지 확인합니다. 모든 VM에는 각 환경의 `bootstrap.sh`가 적용됩니다. `startup_scripts`는 초기 설정 후 실행할 서비스별 앱 배포 스크립트이며, 기본값 `{}`이면 앱은 자동으로 배포되지 않습니다.
 
 ```bash
 # 저장소 루트에서, 원하는 환경 하나를 선택합니다.
@@ -101,6 +101,10 @@ terraform output runtime_enabled
 
 ## Terraform이 설치하는 범위
 
-Terraform은 인프라를 만들지만 애플리케이션 프로세스, DB 사용자, DNS 레코드를 배포하지 않습니다. 개발 VM의 [bootstrap.sh](dev/bootstrap.sh)는 Docker·Compose, Google Cloud CLI, Ops Agent, 스왑과 디렉터리만 준비합니다. 스테이징·운영의 `startup_scripts` 기본값은 비어 있습니다. 앱 배포와 DB 연결 설정은 각 환경에서 따로 수행해야 합니다.
+Terraform은 인프라를 만들지만 애플리케이션 프로세스, DB 사용자, DNS 레코드를 배포하지 않습니다. 개발·스테이징·운영 VM은 각 환경의 `bootstrap.sh`로 Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비합니다. 스테이징·운영의 서비스별 `startup_scripts` 기본값은 비어 있습니다. 앱 배포와 DB 연결 설정은 각 환경에서 따로 수행해야 합니다.
 
 이 저장소는 코드 작성 및 로컬 검증 단계이며 실제 GCP 리소스는 아직 만들지 않았습니다.
+
+## 수정 사항
+
+스테이징·운영 VM 5대 각각에 공통 초기 설정 스크립트를 연결했습니다. 공통 스크립트는 완료 표시 파일이 있으면 설치를 건너뛰고, 서비스별 `startup_scripts`가 있으면 그 뒤에 매 부팅마다 실행됩니다. `metadata_startup_script` 변경은 Terraform 계획에서 VM 교체로 표시될 수 있으므로 적용 전에 확인해야 합니다. Artifact Registry의 비공개 이미지를 내려받으려면 VM 서비스 계정에 별도 읽기 권한이 필요합니다. Docker 그룹과 `gcloud auth configure-docker` 설정은 `ubuntu` 계정에만 적용되므로, OS Login으로 접속하는 운영자 계정에서 Docker를 실행할 때는 해당 계정의 권한과 인증을 별도로 준비해야 합니다.

@@ -20,7 +20,7 @@ terraform plan -out=tfplan
 
 ## HTTPS와 앱 배포
 
-적용 후 `terraform output dns_a_record`의 `address`를 개발 도메인의 DNS A 레코드로 등록합니다. 이 주소는 VM의 고정 공인 IP입니다. [`bootstrap.sh`](bootstrap.sh)는 VM 시작 시 Docker·Compose, Google Cloud CLI, Ops Agent, 기본 유틸리티, 2GB 스왑과 `/home/ubuntu/app/data/{nginx,certbot}` 디렉터리를 준비합니다. VM 방화벽은 외부 TCP 80·443번을 허용합니다.
+적용 후 `terraform output dns_a_record`의 `address`를 개발 도메인의 DNS A 레코드로 등록합니다. 이 주소는 VM의 고정 공인 IP입니다. [`bootstrap.sh`](bootstrap.sh)는 VM 시작 시 Docker·Compose, Google Cloud CLI, Ops Agent, 기본 유틸리티와 2GB 스왑을 준비합니다. VM 방화벽은 외부 TCP 80·443번을 허용합니다.
 
 Nginx·Certbot 설정과 인증서 발급, 서비스 컨테이너 시작은 직접 배포해야 합니다. `terraform output site_url`은 `https://<domain>`을 표시할 뿐 HTTPS가 이미 동작한다는 뜻은 아닙니다. Nginx에서 `/api`·`/image`를 backend, `/ai/search`를 AI, `/ws`를 chat, 나머지를 frontend로 보내도록 구성할 수 있습니다. 네 서비스를 한 `e2-small`에 올리는 만큼 실제 메모리 사용량을 확인하세요.
 

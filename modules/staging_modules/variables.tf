@@ -110,8 +110,13 @@ variable "health_paths" {
   }
 }
 
+variable "bootstrap_script" {
+  description = "모든 서비스 VM에 공통으로 실행할 초기 설정 스크립트"
+  type        = string
+}
+
 variable "startup_scripts" {
-  description = "서비스별 선택적 배포/부트스트랩 스크립트. AI 스크립트는 모든 AI VM에 적용됩니다. 키: frontend, ai, backend, chat"
+  description = "공통 초기 설정 후 실행할 서비스별 선택적 스크립트. AI 스크립트는 모든 AI VM에 적용됩니다. 키: frontend, ai, backend, chat"
   type        = map(string)
   default     = {}
 }

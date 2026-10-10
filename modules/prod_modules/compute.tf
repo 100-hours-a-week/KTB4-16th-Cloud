@@ -13,7 +13,14 @@ resource "google_compute_instance" "vm" {
   allow_stopping_for_update = true
   tags                      = ["${var.name_prefix}-app"]
   metadata                  = { enable-oslogin = "TRUE" }
-  metadata_startup_script   = lookup(var.startup_scripts, each.value, null)
+  metadata_startup_script   = <<-EOT
+    #!/bin/bash
+    set -euo pipefail
+    bash -s <<'MULO_BOOTSTRAP'
+    ${var.bootstrap_script}
+    MULO_BOOTSTRAP
+    ${lookup(var.startup_scripts, each.value, "")}
+  EOT
 
   boot_disk {
     initialize_params {

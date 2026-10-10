@@ -42,3 +42,5 @@ terraform output runtime_enabled
 
 staging 도메인이 정해지지 않아서 수정이 필요하다.
 테스트가 되지 않았다.
+
+모든 스테이징 VM(frontend·AI 2대·backend·chat)에 [`bootstrap.sh`](bootstrap.sh)가 VM 시작 시 적용됩니다. Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비하며 앱 배포는 포함하지 않습니다. `startup_scripts`에 서비스별 스크립트를 넣으면 공통 초기 설정 다음에 실행됩니다.

@@ -10,6 +10,7 @@ module "mulo" {
   subnet_cidr       = var.subnet_cidr
   service_ports     = var.service_ports
   health_paths      = var.health_paths
+  bootstrap_script  = file("${path.module}/bootstrap.sh")
   startup_scripts   = var.startup_scripts
 
   use_default_vpc      = false

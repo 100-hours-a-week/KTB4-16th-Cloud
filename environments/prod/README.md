@@ -18,3 +18,7 @@ terraform validate
 terraform plan -out=tfplan
 # 계획 검토 후 실제 배포 시: terraform apply tfplan
 ```
+
+## 수정 사항
+
+모든 운영 VM(frontend·AI 2대·backend·chat)에 [`bootstrap.sh`](bootstrap.sh)가 VM 시작 시 적용됩니다. Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비하며 앱 배포는 포함하지 않습니다. `startup_scripts`에 서비스별 스크립트를 넣으면 공통 초기 설정 다음에 실행됩니다.

@@ -84,7 +84,7 @@ variable "health_paths" {
 }
 
 variable "startup_scripts" {
-  description = "서비스별 선택적 VM 시작 스크립트. ai 스크립트는 AI VM 적용됩니다."
+  description = "공통 bootstrap.sh 실행 후 매 부팅마다 실행할 서비스별 선택적 스크립트. ai 스크립트는 AI VM 두 대에 적용됩니다."
   type        = map(string)
   default     = {}
 }

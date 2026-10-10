@@ -58,10 +58,5 @@ curl -fsSL https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh 
   -o /tmp/add-google-cloud-ops-agent-repo.sh
 bash /tmp/add-google-cloud-ops-agent-repo.sh --also-install
 
-mkdir -p /home/ubuntu/app/data/nginx
-mkdir -p /home/ubuntu/app/data/certbot/conf
-mkdir -p /home/ubuntu/app/data/certbot/www
-chown -R ubuntu:ubuntu /home/ubuntu/app
-
 touch /var/lib/mulo-setup-done
 echo "초기 셋업 완료"

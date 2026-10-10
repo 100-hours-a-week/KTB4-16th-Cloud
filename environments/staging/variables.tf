@@ -74,8 +74,9 @@ variable "health_paths" {
 }
 
 variable "startup_scripts" {
-  type    = map(string)
-  default = {}
+  description = "공통 bootstrap.sh 실행 후 매 부팅마다 실행할 서비스별 선택적 스크립트"
+  type        = map(string)
+  default     = {}
 }
 
 variable "sql_deletion_protection" {
