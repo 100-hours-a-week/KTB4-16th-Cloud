@@ -11,23 +11,30 @@ output "vm_private_ips" {
 }
 
 output "mysql_private_ips" {
-  value = { for key, instance in google_sql_database_instance.mysql : key => instance.private_ip_address }
+  description = "기존 backend MySQL과 새 chat MySQL의 사설 IP"
+  value = {
+    be   = data.google_sql_database_instance.backend_private.private_ip_address
+    chat = google_sql_database_instance.chat.private_ip_address
+  }
 }
 
 output "mysql_connection_names" {
-  value = { for key, instance in google_sql_database_instance.mysql : key => instance.connection_name }
-}
-
-output "postgres_private_ip" {
-  value = google_sql_database_instance.postgres.private_ip_address
+  value = {
+    be   = google_sql_database_instance.backend_existing.connection_name
+    chat = google_sql_database_instance.chat.connection_name
+  }
 }
 
 output "postgres_connection_name" {
-  value = google_sql_database_instance.postgres.connection_name
+  value = google_sql_database_instance.ai_existing.connection_name
+}
+
+output "postgres_private_ip" {
+  value = data.google_sql_database_instance.ai_private.private_ip_address
 }
 
 output "image_bucket_name" {
-  value = google_storage_bucket.images.name
+  value = data.google_storage_bucket.images.name
 }
 
 output "network_name" {

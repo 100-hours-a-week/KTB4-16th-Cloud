@@ -115,12 +115,6 @@ variable "bootstrap_script" {
   type        = string
 }
 
-variable "startup_scripts" {
-  description = "공통 초기 설정 후 실행할 서비스별 선택적 스크립트. AI 스크립트는 모든 AI VM에 적용됩니다. 키: frontend, ai, backend, chat"
-  type        = map(string)
-  default     = {}
-}
-
 variable "mysql_version" {
   type    = string
   default = "MYSQL_8_4"

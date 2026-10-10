@@ -1,17 +1,12 @@
-// 이미지 객체는 비공개로 보관하고, backend VM이 인증 후 조회와 업로드를 처리
-resource "google_storage_bucket" "images" {
-  name                        = var.image_bucket_name
-  location                    = var.region
-  storage_class               = "STANDARD"
-  uniform_bucket_level_access = true
-  public_access_prevention    = "enforced"
-  force_destroy               = false
-  depends_on                  = [google_project_service.required]
+// 운영 버킷과 객체는 기존 것을 그대로 사용합니다.
+data "google_storage_bucket" "images" {
+  name    = var.image_bucket_name
+  project = var.project_id
 }
 
-// backend VM 서비스 계정에 이미지 읽기, 업로드, 삭제 권한을 부여
+// 새 backend VM 서비스 계정에 기존 버킷의 객체 관리 권한만 추가합니다.
 resource "google_storage_bucket_iam_member" "backend_image_admin" {
-  bucket = google_storage_bucket.images.name
+  bucket = data.google_storage_bucket.images.name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.vm["backend"].email}"
 }

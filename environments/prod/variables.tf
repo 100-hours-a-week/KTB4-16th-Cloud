@@ -14,7 +14,17 @@ variable "domain" {
 }
 
 variable "image_bucket_name" {
-  description = "전역에서 유일한 운영 이미지 버킷 이름"
+  description = "재사용할 기존 운영 이미지 버킷 이름"
+  type        = string
+}
+
+variable "existing_backend_mysql_instance_name" {
+  description = "재사용할 기존 운영 backend MySQL Cloud SQL 인스턴스 이름"
+  type        = string
+}
+
+variable "existing_ai_postgres_instance_name" {
+  description = "재사용할 기존 운영 AI PostgreSQL Cloud SQL 인스턴스 이름"
   type        = string
 }
 
@@ -83,28 +93,20 @@ variable "health_paths" {
   }
 }
 
-variable "startup_scripts" {
-  description = "공통 bootstrap.sh 실행 후 매 부팅마다 실행할 서비스별 선택적 스크립트. ai 스크립트는 AI VM 두 대에 적용됩니다."
-  type        = map(string)
-  default     = {}
-}
-
 variable "mysql_version" {
-  type    = string
-  default = "MYSQL_8_4"
-}
-
-variable "postgres_version" {
-  type    = string
-  default = "POSTGRES_16"
+  description = "새 chat MySQL의 버전"
+  type        = string
+  default     = "MYSQL_8_4"
 }
 
 variable "sql_tier" {
-  type    = string
-  default = "db-g1-small"
+  description = "새 chat MySQL의 머신 티어"
+  type        = string
+  default     = "db-g1-small"
 }
 
 variable "sql_deletion_protection" {
-  type    = bool
-  default = true
+  description = "새 chat MySQL의 삭제 보호"
+  type        = bool
+  default     = true
 }

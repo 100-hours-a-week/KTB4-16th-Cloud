@@ -9,7 +9,17 @@ variable "domain" {
 }
 
 variable "image_bucket_name" {
-  description = "전역에서 유일한 이미지 버킷 이름"
+  description = "재사용할 기존 운영 이미지 버킷 이름"
+  type        = string
+}
+
+variable "existing_backend_mysql_instance_name" {
+  description = "재사용할 기존 운영 backend MySQL Cloud SQL 인스턴스 이름"
+  type        = string
+}
+
+variable "existing_ai_postgres_instance_name" {
+  description = "재사용할 기존 운영 AI PostgreSQL Cloud SQL 인스턴스 이름"
   type        = string
 }
 
@@ -115,29 +125,20 @@ variable "bootstrap_script" {
   type        = string
 }
 
-variable "startup_scripts" {
-  description = "공통 초기 설정 후 실행할 서비스별 선택적 스크립트. AI 스크립트는 모든 AI VM에 적용됩니다. 키: frontend, ai, backend, chat"
-  type        = map(string)
-  default     = {}
-}
-
 variable "mysql_version" {
-  type    = string
-  default = "MYSQL_8_4"
-}
-
-variable "postgres_version" {
-  type    = string
-  default = "POSTGRES_16"
+  description = "새 chat MySQL의 버전"
+  type        = string
+  default     = "MYSQL_8_4"
 }
 
 variable "sql_tier" {
-  type    = string
-  default = "db-g1-small"
+  description = "새 chat MySQL의 머신 티어"
+  type        = string
+  default     = "db-g1-small"
 }
 
 variable "sql_deletion_protection" {
-  description = "Terraform 및 GCP의 Cloud SQL 삭제 보호"
+  description = "새 chat MySQL에 적용할 Terraform 및 GCP 삭제 보호"
   type        = bool
   default     = true
 }

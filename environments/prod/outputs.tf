@@ -18,12 +18,12 @@ output "mysql_connection_names" {
   value = module.mulo.mysql_connection_names
 }
 
-output "postgres_private_ip" {
-  value = module.mulo.postgres_private_ip
-}
-
 output "postgres_connection_name" {
   value = module.mulo.postgres_connection_name
+}
+
+output "postgres_private_ip" {
+  value = module.mulo.postgres_private_ip
 }
 
 output "image_bucket_name" {

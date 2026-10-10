@@ -9,8 +9,8 @@
 ```bash
 # 저장소 루트에서 시작
 cd environments/staging
-cp terraform.tfvars.example terraform.tfvars
-# project_id, domain, image_bucket_name을 실제 스테이징 값으로 확인·수정
+# terraform.tfvars가 없다면: cp terraform.tfvars.example terraform.tfvars
+# terraform.tfvars의 TODO(도메인·버킷)를 확인·수정
 gcloud auth application-default login
 terraform init
 terraform fmt -check
@@ -40,7 +40,8 @@ terraform output runtime_enabled
 
 ## 수정 사항
 
-staging 도메인이 정해지지 않아서 수정이 필요하다.
-테스트가 되지 않았다.
+스테이징 도메인은 우선 `staging.mulostudio.com`으로 정했습니다. 실제 사용할 도메인이 다르면 `terraform.tfvars`를 수정하세요. 버킷 이름은 `mulo-v2-staging-images-7b071b48-8637-467a-80d`로 정했으며 운영 버킷과 분리됩니다.
 
-모든 스테이징 VM(frontend·AI 2대·backend·chat)에 [`bootstrap.sh`](bootstrap.sh)가 VM 시작 시 적용됩니다. Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비하며 앱 배포는 포함하지 않습니다. `startup_scripts`에 서비스별 스크립트를 넣으면 공통 초기 설정 다음에 실행됩니다.
+모든 스테이징 VM(frontend·AI 2대·backend·chat)에 [`bootstrap.sh`](bootstrap.sh)가 VM 시작 시 적용됩니다. Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비하며 앱 배포는 포함하지 않습니다. 별도의 서비스별 `startup_scripts` 입력은 제거했습니다.
+
+`terraform validate`와 `terraform plan -input=false`가 성공했습니다. 계획은 신규 리소스 55개, 변경·삭제 0개이며 실제 적용은 하지 않았습니다.
