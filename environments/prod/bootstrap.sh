@@ -58,5 +58,6 @@ curl -fsSL https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh 
   -o /tmp/add-google-cloud-ops-agent-repo.sh
 bash /tmp/add-google-cloud-ops-agent-repo.sh --also-install
 
+
 touch /var/lib/mulo-setup-done
 echo "초기 셋업 완료"

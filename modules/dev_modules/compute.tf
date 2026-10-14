@@ -6,6 +6,14 @@ resource "google_compute_address" "vm" {
   depends_on   = [google_project_service.required]
 }
 
+# 개발 VM의 내부 IP도 예약해 VM 재생성 시 유지합니다.
+resource "google_compute_address" "vm_internal" {
+  name         = "${var.name_prefix}-vm-internal-ip"
+  region       = var.region
+  address_type = "INTERNAL"
+  subnetwork   = data.google_compute_subnetwork.default.id
+}
+
 resource "google_service_account" "vm" {
   account_id   = "${var.name_prefix}-vm"
   display_name = "${var.name_prefix} single development VM"
@@ -46,6 +54,7 @@ resource "google_compute_instance" "vm" {
 
   network_interface {
     subnetwork = data.google_compute_subnetwork.default.id
+    network_ip = google_compute_address.vm_internal.address
 
     access_config {
       nat_ip = google_compute_address.vm.address
@@ -71,5 +80,19 @@ resource "google_compute_firewall" "web" {
   allow {
     protocol = "tcp"
     ports    = ["80", "443"]
+  }
+}
+
+# 개발 VM의 SSH는 IAP TCP 전달 주소에서만 허용합니다.
+resource "google_compute_firewall" "iap_ssh" {
+  name          = "${var.name_prefix}-allow-iap-ssh"
+  network       = data.google_compute_network.default.name
+  direction     = "INGRESS"
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["${var.name_prefix}-web"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
   }
 }

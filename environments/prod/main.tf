@@ -14,14 +14,20 @@ module "mulo" {
   health_paths                         = var.health_paths
   bootstrap_script                     = file("${path.module}/bootstrap.sh")
 
-  use_default_vpc      = false
-  enable_cloud_tasks   = true
-  ai_vm_count          = 2
-  vm_machine_type      = var.vm_machine_type
-  vm_image             = var.vm_image
-  vm_boot_disk_size_gb = 30
-  mysql_version        = var.mysql_version
-  sql_tier             = var.sql_tier
+  service_container_images   = var.service_container_images
+  redis_vm_machine_type      = var.redis_vm_machine_type
+  redis_vm_boot_disk_size_gb = var.redis_vm_boot_disk_size_gb
+
+  use_default_vpc                 = false
+  enable_cloud_tasks              = true
+  ai_vm_count                     = 2
+  vm_machine_type                 = var.vm_machine_type
+  vm_image                        = var.vm_image
+  vm_boot_disk_size_gb            = 30
+  monitoring_vm_machine_type      = var.monitoring_vm_machine_type
+  monitoring_vm_boot_disk_size_gb = var.monitoring_vm_boot_disk_size_gb
+  mysql_version                   = var.mysql_version
+  sql_tier                        = var.sql_tier
 
   sql_deletion_protection = var.sql_deletion_protection
 }

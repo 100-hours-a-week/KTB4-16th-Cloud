@@ -1,51 +1,37 @@
 # MULO v2 Terraform
 
-개발, 스테이징, 운영 인프라를 GCP에 만드는 Terraform 코드입니다. **Terraform 명령은 저장소 최상위가 아니라 `environments/dev`, `environments/staging`, `environments/prod` 중 배포할 폴더에서 실행합니다.** 실제 GCP 배포는 아직 하지 않았습니다.
+MULO의 개발·스테이징·운영 인프라를 Google Cloud에 정의합니다. 기본 리전은 서울(`asia-northeast3`), VM 배치 존은 `asia-northeast3-a`입니다.
 
-| 환경 | 구성 | 안내 |
-| --- | --- | --- |
-| 개발 | Ubuntu 22.04 VM 1대에 서비스 4개, 공개 IP Cloud SQL, VM의 Nginx·Certbot | [개발 README](environments/dev/README.md) |
-| 스테이징 | Ubuntu 22.04 VM 5대, 전용 VPC, 사설 IP Cloud SQL, HTTPS 로드 밸런서, Cloud Tasks | [스테이징 README](environments/staging/README.md) |
-| 운영 | Ubuntu 22.04 VM 5대, 기존 운영 MySQL·PostgreSQL에 사설 IP 추가, 기존 GCS 버킷 재사용, 신규 chat MySQL | [운영 README](environments/prod/README.md) |
+## 환경 한눈에 보기
 
-## 폴더 구조
+| 환경 | 앱 배치 | 데이터베이스 | 외부 요청 진입점 |
+| --- | --- | --- | --- |
+| [개발](environments/dev/README.md) | VM 1대에서 서비스 4개 실행 | 개발용 MySQL 1대·PostgreSQL 1대 | VM의 Nginx |
+| [스테이징](environments/staging/README.md) | MIG 4개에 앱 VM 5대 | 스테이징 전용 MySQL 2대·PostgreSQL 1대 | HTTPS 로드 밸런서 |
+| [운영](environments/prod/README.md) | MIG 4개에 앱 VM 5대 | 기존 backend·AI DB 재사용, chat DB 생성 | HTTPS 로드 밸런서 |
+
+스테이징과 운영에는 Redis VM과 모니터링 VM도 각각 1대씩 있습니다. 두 VM은 독립 VM이며 고정 내부 IP를 사용합니다.
+
+## 저장소 구조
 
 ```text
 environments/
-  dev/                 개발 환경에서 Terraform을 실행하는 폴더
-  staging/             스테이징 환경에서 Terraform을 실행하는 폴더
-  prod/                운영 환경에서 Terraform을 실행하는 폴더
-  README.md            공통 구성과 실행 방법
+  dev/              개발 환경의 입력값과 모듈 연결
+  staging/          스테이징 환경의 입력값과 모듈 연결
+  prod/             운영 환경의 입력값과 모듈 연결
 modules/
-  dev_modules/         개발 리소스 정의
-  staging_modules/     스테이징 리소스 정의
-  prod_modules/        운영 리소스 정의
-enable-pgvector.sql    mulo_ai DB에서 실행할 pgvector 활성화 SQL
+  dev_modules/      개발 리소스 정의
+  staging_modules/  스테이징 리소스 정의
+  prod_modules/     운영 리소스 정의
+enable-pgvector.sql  AI DB의 vector 확장 SQL
 ```
 
-`environments/<환경>/main.tf`의 `module "mulo"`가 해당 환경의 `modules/<환경>_modules/`를 호출합니다. `environments`는 입력값, 공급자 설정, 출력값, Terraform 상태를 관리하는 **루트 모듈**이고, `modules`는 실제 GCP 리소스를 정의하는 **하위 모듈**입니다. 모듈 폴더에서 `terraform apply`를 실행하지 않습니다.
+각 `environments/<환경>/main.tf`가 같은 환경의 `modules/<환경>_modules`를 호출합니다. 환경별 입력값과 Terraform 상태는 `environments`의 각 폴더에서 관리합니다.
 
-## 시작하기
+## 관리 범위
 
-Terraform 1.6 이상과 GCP 인증을 준비한 뒤, 배포할 환경의 README를 먼저 읽으세요. 예를 들어 스테이징 환경은 다음과 같습니다.
+Terraform은 VM·네트워크·방화벽·Cloud SQL·이미지 버킷과 서비스 계정을 관리합니다. 스테이징·운영에는 로드 밸런서, 인스턴스 템플릿, MIG, Cloud Tasks 큐도 포함됩니다.
 
-```bash
-cd environments/staging
-test -f terraform.tfvars || cp terraform.tfvars.example terraform.tfvars
-# terraform.tfvars의 프로젝트 ID, 도메인, 버킷 이름을 확인하고 수정
-gcloud auth application-default login
-terraform init
-terraform fmt -check
-terraform validate
-terraform plan -out=tfplan
-```
+VM의 `bootstrap.sh`는 Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비합니다. 앱·Redis·모니터링 서비스의 설치와 Compose 파일, DB 사용자와 앱 연결 정보는 직접 구성합니다.
 
-`terraform.tfvars.example`은 자동으로 읽히지 않습니다. 실제 값은 복사한 `terraform.tfvars`에 넣거나 `terraform plan -var-file=파일명.tfvars`로 전달합니다. `terraform.tfvars`와 상태 파일은 `.gitignore`에 포함되어 있습니다. 계획을 검토한 뒤 배포할 때만 `terraform apply tfplan`을 실행합니다.
-
-
-개발·스테이징은 Cloud SQL 자동 백업·PITR와 디스크 자동 확장을 끄고, `runtime_enabled` 값으로 VM·DB를 켜고 끌 수 있습니다. 최초 생성은 `true`로 진행합니다. 중지해도 디스크·IP 등 유지 비용은 남습니다. 운영에서 새로 만드는 chat MySQL은 자동 백업을 켜며, 기존 운영 DB의 백업 설정은 Terraform이 변경하지 않습니다.
-
-## 아직 수정이 필요한 사항
-
-1. **Cloud Tasks 목적지 URL:** [스테이징](modules/staging_modules/outputs.tf)과 [운영](modules/prod_modules/outputs.tf)의 `ai_task_target_url`은 현재 `https://<도메인>/internal/tasks/*`를 출력합니다. `*`는 로드 밸런서 경로 규칙에서 쓰는 패턴이며 실제 HTTP 작업의 목적지에서는 문자 그대로 전달됩니다. AI 앱의 실제 처리 경로가 `/internal/tasks/search`라면 두 출력값을 그 경로로 바꾸세요. 다른 작업 경로도 사용한다면 앱에서 각 작업의 전체 URL을 만들어야 합니다. [Cloud Tasks URL 형식](https://docs.cloud.google.com/tasks/docs/create-tasks)을 참고하세요.
-2. **경로 규칙과 문서:** 두 환경의 [로드 밸런서 규칙](modules/staging_modules/load_balancer.tf)은 `/ai/*`와 `/internal/tasks/*`만 AI로 보냅니다. `/ai/search`는 포함되지만 `/ai`와 `/internal/tasks` 자체는 기본 frontend로 갑니다. [환경 안내](environments/README.md)의 경로 표는 `/internal/tasks`도 AI로 간다고 적혀 있으므로, 실제 앱 경로에 맞춰 규칙이나 설명을 맞춰야 합니다. [URL 맵 경로 일치 방식](https://docs.cloud.google.com/load-balancing/docs/url-map-concepts)을 참고하세요.
+환경 비교와 서비스 간 연결은 [공통 구성](environments/README.md), 각 환경의 VM·DB 사양은 위 환경별 문서에서 확인할 수 있습니다. 요구 버전은 Terraform **1.6 이상**, Google provider **7.x**입니다.

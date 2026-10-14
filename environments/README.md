@@ -1,112 +1,72 @@
-# 환경 구성과 실행 방법
+# 환경 공통 구성
 
-## 각 폴더의 역할
+[개발](dev/README.md) · [스테이징](staging/README.md) · [운영](prod/README.md) · [저장소 안내](../README.md)
 
-| 위치 | 역할 |
-| --- | --- |
-| `environments/dev` | 개발 환경의 Terraform 실행 위치. 입력값과 출력값을 정의하고 `modules/dev_modules`를 호출합니다. |
-| `environments/staging` | 스테이징 환경의 실행 위치. `modules/staging_modules`를 호출합니다. |
-| `environments/prod` | 운영 환경의 실행 위치. `modules/prod_modules`를 호출합니다. |
-| `modules/*` | VM, 네트워크, DB 등의 GCP 리소스를 실제로 선언하는 하위 모듈입니다. 여기서는 직접 Terraform 명령을 실행하지 않습니다. |
-
-각 환경 폴더의 `versions.tf`는 Terraform과 Google 공급자 버전, GCP 프로젝트·리전·존을 설정합니다. `variables.tf`는 입력 변수의 **이름·타입·기본값·검증 조건**을 정의하고, `terraform.tfvars`는 해당 환경의 **실제 값**을 넣습니다. 기본값이 있는 변수는 `terraform.tfvars`에 다시 적지 않아도 됩니다. `terraform.tfvars.example`은 복사해서 수정하는 예시일 뿐 자동으로 읽히지 않습니다.
-
-값은 `terraform.tfvars` → `environments/<환경>/variables.tf`의 `var.*` → `main.tf`의 `module "mulo"` 인수 → 해당 `modules/*`의 리소스 순서로 전달됩니다. `outputs.tf`는 생성된 주소와 이름 중 확인할 값을 노출합니다. 환경별 Terraform 상태는 각 환경 폴더에서 따로 관리합니다. 현재 원격 상태 저장소 설정은 없습니다.
-
-## 환경별 구성
+## 환경 구분
 
 | 항목 | 개발 | 스테이징 | 운영 |
 | --- | --- | --- | --- |
-| VM | Ubuntu 22.04 LTS `e2-small` 1대, 30GB 디스크 | Ubuntu 22.04 LTS `e2-medium` 5대, 각 30GB | 스테이징과 같은 VM 구성 |
-| 서비스 배치 | VM 1대에 frontend·AI·backend·chat 함께 배포 | frontend 1대, AI 2대, backend 1대, chat 1대 | 스테이징과 같음 |
-| 접속 | VM 고정 공인 IP; Nginx·Certbot으로 HTTPS 구성 | 글로벌 HTTPS 로드 밸런서와 Google 관리 인증서 | 스테이징과 같음 |
-| 네트워크 | 프로젝트의 기존 `default` VPC·서브넷 | 전용 VPC·서브넷, Cloud NAT, IAP SSH 방화벽 | 별도 전용 VPC·서브넷, Cloud NAT, IAP SSH 방화벽 |
-| Cloud SQL | 공개 IP MySQL 인스턴스 1대(DB `mulo`, `mulo_chat`)와 PostgreSQL 인스턴스 1대(DB `mulo_ai`) | 사설 IP MySQL 인스턴스 2대(`be`, `chat`)와 PostgreSQL 인스턴스 1대(`ai`) | 기존 MySQL `backend-db-1`·PostgreSQL `ai-db-1`에 사설 IP 추가, 신규 사설 IP chat MySQL 1대 |
-| 이미지 | 비공개 GCS 버킷 | 별도 비공개 GCS 버킷 | 기존 운영 `muro-bucket-1` 재사용 |
-| Cloud Tasks | 없음 | AI 작업 큐와 OIDC용 서비스 계정 | 별도 AI 작업 큐와 서비스 계정 |
-| DB 백업·PITR | 자동 백업·MySQL binlog·PostgreSQL PITR 끔 | 개발과 같음 | 신규 chat MySQL 자동 백업·binlog 켬; 기존 DB 설정은 변경하지 않음 |
-| VM·DB 전원 | `runtime_enabled`로 함께 제어 | `runtime_enabled`로 함께 제어 | 상시 실행 |
+| 기본 접두사 | `mulo-v2-dev` | `mulo-v2-staging` | `mulo-v2` |
+| VPC | 기존 `default` 사용 | 전용 VPC 생성 | 별도 전용 VPC 생성 |
+| VM 서브넷 | 기존 `default` 서브넷 | `10.21.0.0/24` | `10.20.0.0/24` |
+| 앱 VM 주소 | 고정 공인·내부 IP | 내부 IP 자동 할당 | 내부 IP 자동 할당 |
+| DB 접속 | 공인 IP와 TLS | 사설 IP | 사설 IP, 기존 DB는 TLS 유지 |
+| 이미지 버킷 | 새 비공개 버킷 | 새 비공개 버킷 | 기존 버킷 사용 |
+| Cloud Tasks | 없음 | AI 작업 큐 | 별도 AI 작업 큐 |
+| LB 연결 드레이닝 | 해당 없음 | 60초 | 300초 |
 
-읽기 복제본은 어떤 환경에도 없습니다. 스테이징과 운영의 기본 접두사는 각각 `mulo-v2-staging`, `mulo-v2`이고 기본 서브넷 범위는 각각 `10.21.0.0/24`, `10.20.0.0/24`입니다. 두 환경을 같은 GCP 프로젝트에 배포해도 VPC, VM, chat Cloud SQL, 로드 밸런서, 작업 큐는 별도로 생성됩니다. 스테이징 DB와 버킷은 별도로 생성하고, 운영은 기존 DB 두 대와 버킷을 재사용합니다. 프로젝트 전체의 API 활성화, 할당량, 결제는 공유됩니다. 같은 프로젝트에서 기존 리소스와 이름 또는 IP 범위가 겹치지 않는지 계획에서 확인하세요.
+같은 GCP 프로젝트를 사용하더라도 스테이징과 운영은 VPC·VM·로드 밸런서·큐를 각각 구성합니다. 스테이징은 DB와 버킷도 별도로 생성합니다. 프로젝트의 API 활성화와 할당량은 공유됩니다.
 
-스테이징에는 `be` MySQL의 `mulo`, `chat` MySQL의 `mulo_chat`, `ai` PostgreSQL의 `mulo_ai` 데이터베이스가 생성됩니다. 운영의 `mulo`와 `muro_ai`는 기존 DB에 남아 있고 신규 chat MySQL에만 `mulo_chat`이 생성됩니다.
+## 스테이징·운영의 요청 흐름
 
-## 적용 전 입력값
-
-1. Terraform 1.6 이상과 GCP 프로젝트를 준비하고 `gcloud auth application-default login`으로 인증합니다. 프로젝트에는 결제 계정이 연결되어 있어야 합니다.
-2. 환경 폴더에서 `terraform.tfvars.example`을 `terraform.tfvars`로 복사합니다. `project_id`, `domain`, `image_bucket_name`을 실제 환경에 맞게 확인합니다. 세 환경의 예시 프로젝트 ID는 같지만 반드시 같을 필요는 없습니다.
-3. **새로 생성하는 GCS 버킷 이름은 전역에서 유일하고 환경별로 달라야 합니다.** 현재 개발·스테이징 예시 둘 다 `mulo-develop-1`이므로 하나는 바꿔야 합니다. 스테이징 예시의 `staging.example.com`도 실제 사용할 도메인으로 바꿔야 합니다. 운영 예시의 프로젝트·도메인·기존 DB 이름·버킷이 실제 운영 값인지 확인합니다.
-4. 스테이징·운영의 `service_ports`와 `health_paths` 기본값이 앱의 실제 수신 포트와 HTTP 200 응답 경로에 맞는지 확인합니다. 모든 VM에는 각 환경의 `bootstrap.sh`가 적용됩니다. 앱은 별도로 배포해야 합니다.
-
-```bash
-# 저장소 루트에서, 스테이징 환경 예시입니다.
-cd environments/staging
-test -f terraform.tfvars || cp terraform.tfvars.example terraform.tfvars
-# terraform.tfvars 수정
-terraform init
-terraform fmt -check
-terraform validate
-terraform plan -out=tfplan
-# 계획을 검토한 뒤 실제 배포 시: terraform apply tfplan
+```mermaid
+flowchart LR
+  User[사용자] --> LB[HTTPS 로드 밸런서]
+  LB --> FE[frontend MIG · 1대]
+  LB --> BE[backend MIG · 1대]
+  LB --> AI[AI MIG · 2대]
+  LB --> Chat[chat MIG · 1대]
 ```
 
-`terraform.tfvars` 대신 다른 파일을 쓰려면 `terraform plan -var-file=dev.tfvars`처럼 지정합니다. 저장된 계획을 적용할 때는 그 계획 파일을 그대로 사용합니다. 상태 파일은 환경마다 별도로 유지하고 Git에 올리지 않습니다. 현재 원격 백엔드가 없으므로 여러 사람이 함께 적용할 계획이라면 환경별 원격 상태와 잠금을 먼저 구성해야 합니다.
+HTTP 요청은 HTTPS로 리다이렉트되고, HTTPS 요청은 아래 경로에 따라 서비스로 전달됩니다.
 
-## 개발·스테이징 켜기와 끄기
+| 요청 경로 | 전달 대상 | 기본 포트 | 헬스체크 경로 |
+| --- | --- | --- | --- |
+| `/api`, `/api/*`, `/image`, `/image/*` | backend | 8080 | `/actuator/health` |
+| `/ai/*`, `/internal/tasks/*` | AI | 8000 | `/health` |
+| `/ws`, `/ws/*` | chat | 8081 | `/health` |
+| 그 외 | frontend | 3000 | `/` |
 
-두 환경의 `terraform.tfvars`에 있는 `runtime_enabled`를 바꾸고 **그 환경 폴더에서** 계획을 확인한 뒤 적용합니다. 최초 생성은 반드시 `true`로 진행합니다. Terraform은 DB 안의 데이터베이스를 생성해야 하므로 처음부터 `false`로 만들 수 없습니다.
+로드 밸런서는 경로를 그대로 전달합니다. `/ai`와 `/internal/tasks`처럼 위 패턴에 없는 루트 경로는 frontend로 전달됩니다. [URL 맵 경로 규칙](https://docs.cloud.google.com/load-balancing/docs/url-map-concepts)에 따른 동작입니다. 도메인의 DNS A 레코드는 LB IP를 가리키며, 인증서는 Google 관리 인증서를 사용합니다.
 
-```hcl
-# 사용 중
-runtime_enabled = true
+## 데이터와 내부 통신
 
-# 사용하지 않을 때 위 값을 아래처럼 변경
-runtime_enabled = false
-```
+backend는 MySQL과 이미지 버킷, AI는 PostgreSQL, chat은 chat MySQL에 연결하는 구성입니다. 이미지 요청은 backend가 사용자 권한을 확인한 뒤 버킷의 객체를 읽거나 쓰도록 앱에서 구현합니다.
 
-```bash
-terraform plan -out=tfplan
-terraform apply tfplan
-terraform output runtime_enabled
-```
+비동기 AI 작업은 **backend → Cloud Tasks → HTTPS LB → AI** 흐름입니다. Terraform은 큐와 OIDC용 서비스 계정을 만들고, backend 앱은 실제 처리 URL과 OIDC 설정을 넣어 작업을 등록합니다. AI 앱은 토큰을 검증합니다. `ai_task_target_url` 출력의 `/internal/tasks/*`는 경로 패턴이므로 실제 작업에는 앱의 구체적인 처리 URL을 사용합니다.
 
-`false`이면 개발 VM 1대 또는 스테이징 VM 5대가 `TERMINATED`로, 해당 환경의 Cloud SQL 인스턴스가 `NEVER` 활성화 정책으로 바뀝니다. `true`로 바꿔 같은 절차를 실행하면 다시 켜집니다. **VM·DB를 삭제하지 않으므로 데이터와 디스크는 남지만 서비스 접속은 중단됩니다.** 스테이징의 로드 밸런서, Cloud NAT, 버킷과 네트워크도 그대로 남습니다. `runtime_enabled` 출력은 마지막 적용 때의 목표값이며 실시간 전원 상태 조회값은 아닙니다. 다른 `terraform apply`를 실행할 때도 같은 `terraform.tfvars`를 사용하세요.
+| 허용된 연결 | 포트 | 용도 |
+| --- | --- | --- |
+| LB → 앱 VM | 서비스별 포트 | 앱 요청과 헬스체크 |
+| 앱 VM → Redis | 6379 | Redis 사용 |
+| 모니터링 VM → 앱 VM | 서비스별 포트·9100 | 앱 지표와 Node Exporter 수집 |
+| 앱 VM → 모니터링 VM | 3100 | Loki 로그 전송 |
+| IAP → VM | 22 | SSH 접속 |
 
-중지 상태에서도 VM 부팅 디스크와 고정 IP, Cloud SQL 저장 공간, GCS 객체, 스테이징 로드 밸런서 전달 규칙과 NAT IP 등의 비용은 계속 발생할 수 있습니다. 개발·스테이징은 자동 백업·PITR을 끄고 DB 디스크 자동 확장도 껐습니다. DB의 초기 저장 공간은 20GB이며, 용량이 부족해지면 쓰기 실패나 인스턴스 중지가 생길 수 있으므로 확인하세요. 코드에는 별도 VM 스냅샷도 없습니다. 이미 만들어진 수동 백업은 설정 변경만으로 삭제되지 않습니다. 데이터 손실 시 백업이나 시점 복구를 사용할 수 없으므로 시연·테스트 데이터만 넣는 구성을 전제로 합니다.
+스테이징·운영 VM에는 공인 IP가 없고 외부 이미지 다운로드·API 호출은 Cloud NAT를 거칩니다. 모니터링과 Redis는 LB에 연결하지 않습니다. 위 방화벽은 통신 경로를 열어 주며, Redis·Prometheus·Loki·Node Exporter 실행과 설정은 직접 구성합니다.
 
-`sql_deletion_protection` 기본값은 그대로 `true`입니다. 중지는 리소스 삭제가 아니므로 비용을 완전히 없애려면 별도 삭제 절차가 필요합니다.
+## 앱 MIG의 동작
 
-## 배포 후 연결
+Terraform이 서비스별 인스턴스 템플릿을 만들고 MIG에 연결합니다. 템플릿 변경 시 새 VM을 먼저 1대 만들고, 헬스체크를 통과하면 기존 VM을 교체하는 롤링 정책을 사용합니다.
 
-### 개발
+앱 VM은 교체 시 이름과 내부 IP가 바뀔 수 있습니다. 이전 VM에 직접 작성한 Compose 파일과 앱 설정은 새 VM에 자동으로 복사되지 않습니다. `service_container_images`도 이미지 주소를 VM 메타데이터에 기록할 뿐 앱을 실행하지는 않습니다.
 
-`terraform output dns_a_record`의 `address`를 개발 도메인의 DNS A 레코드에 넣습니다. `site_url`은 `https://<개발 도메인>` 문자열을 출력하지만, 이것만으로 HTTPS가 열리는 것은 아닙니다. 개발 VM에 Nginx와 Certbot을 배포·설정하고 인증서를 발급해야 합니다. Terraform은 개발 DNS 레코드, Nginx 설정, 인증서를 만들지 않습니다. 자세한 단계는 [개발 README](dev/README.md)를 참고하세요.
+앱의 HTTP 헬스체크 실패만으로 VM을 자동 재생성하지 않도록 설정되어 있습니다. VM 자체 장애로는 재생성될 수 있습니다. 모니터링·Redis VM의 부팅 디스크는 VM 삭제 후에도 남도록 설정되어 있습니다.
 
-개발 Cloud SQL은 공개 IP를 가지지만 허용 네트워크는 개발 VM의 고정 공인 IP `/32`이고 TLS 연결을 요구합니다. 프로젝트에 `default` VPC와 해당 리전의 `default` 서브넷이 있어야 합니다.
+## 입력값·권한·상태
 
-### 스테이징·운영
+각 환경의 `variables.tf`는 입력 항목과 기본값, `main.tf`는 모듈에 전달하는 값, `outputs.tf`는 주소와 리소스 이름을 정의합니다. 실제 환경 값은 `terraform.tfvars`에 둡니다. 아래 환경별 문서의 사양은 코드 기본값 기준입니다.
 
-각 폴더의 `terraform output load_balancer_ip`를 해당 환경 도메인의 DNS A 레코드에 넣습니다. 도메인이 로드 밸런서 IP를 가리켜야 Google 관리 인증서 발급이 진행됩니다. VM에는 공인 IP가 없으며 VM에서 인터넷으로 나가는 연결은 Cloud NAT를 사용합니다. 로드 밸런서 상태 검사가 성공하려면 각 VM에서 해당 앱이 설정된 포트와 경로에 HTTP 200으로 응답해야 합니다.
+backend의 버킷 객체 관리 권한과 모니터링 계정의 로그·지표 전송 권한은 Terraform이 부여합니다. 스테이징·운영 앱의 Artifact Registry 이미지 읽기 권한, backend의 큐 작업 등록 권한, backend·Cloud Tasks 서비스 에이전트의 OIDC 계정 사용 권한은 별도로 부여합니다. DB 사용자·비밀번호와 AI DB의 vector 확장도 직접 준비합니다.
 
-| 요청 경로 | 전달 대상 |
-| --- | --- |
-| `/api`, `/api/*`, `/image`, `/image/*` | backend VM 그룹 |
-| `/ai/search`, `/ai/search/*`, `/internal/tasks`, `/internal/tasks/*` | AI VM 그룹(2대) |
-| `/ws`, `/ws/*` | chat VM 그룹 |
-| 나머지 | frontend VM 그룹 |
-
-`/image/*` 요청은 버킷으로 바로 가지 않습니다. backend 앱이 로그인과 객체별 권한을 확인한 뒤 비공개 버킷에 읽기·쓰기를 수행해야 합니다. backend 앱은 Cloud Tasks 큐에 HTTP 작업을 등록하고, Cloud Tasks가 `https://<환경 도메인>/internal/tasks/search`로 요청을 전달합니다. 앱이 작업을 생성할 때 OIDC 토큰 설정을 포함해야 하며 AI 앱은 그 토큰을 검증해야 합니다. `terraform output ai_task_target_url`로 목적지를 확인할 수 있습니다.
-
-스테이징은 `mysql_connection_names`, `postgres_connection_name`, `mysql_private_ips`, `postgres_private_ip` 출력을 확인해 스테이징 DB에 연결합니다. 운영에서는 `mysql_private_ips.be`, `postgres_private_ip`, `mysql_private_ips.chat`으로 세 DB에 사설 IP로 직접 연결합니다. 기존 운영 DB는 사설 IP 추가 시 재시작되며, 현재 TLS 필수 설정은 유지됩니다. Cloud SQL 사용자·비밀번호와 PostgreSQL `pgvector` 확장은 별도로 확인합니다. 확장 SQL은 [enable-pgvector.sql](../enable-pgvector.sql)에 있습니다.
-
-## Terraform이 설치하는 범위
-
-Terraform은 인프라를 만들지만 애플리케이션 프로세스, DB 사용자, DNS 레코드를 배포하지 않습니다. 개발·스테이징·운영 VM은 각 환경의 `bootstrap.sh`로 Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비합니다. 앱 배포와 DB 연결 설정은 각 환경에서 따로 수행해야 합니다.
-
-이 저장소의 v2 Terraform 코드는 작성·검증 단계이며 `terraform apply`는 실행하지 않았습니다. 운영에서 재사용하는 DB와 버킷은 기존 GCP 리소스입니다.
-
-## 수정 사항
-
-스테이징·운영 VM 5대 각각에 공통 초기 설정 스크립트를 연결했습니다. 공통 스크립트는 완료 표시 파일이 있으면 설치를 건너뜁니다. 별도의 서비스별 `startup_scripts` 입력은 제거했습니다. `metadata_startup_script` 변경은 Terraform 계획에서 VM 교체로 표시될 수 있으므로 적용 전에 확인해야 합니다. Artifact Registry의 비공개 이미지를 내려받으려면 VM 서비스 계정에 별도 읽기 권한이 필요합니다. Docker 그룹과 `gcloud auth configure-docker` 설정은 `ubuntu` 계정에만 적용되므로, OS Login으로 접속하는 운영자 계정에서 Docker를 실행할 때는 해당 계정의 권한과 인증을 별도로 준비해야 합니다.
-
-운영의 기존 `backend-db-1`, `ai-db-1`은 Terraform import 후 v2 VPC의 사설 IP를 추가합니다. `muro-bucket-1`은 `data`로 조회해 유지하며 신규 backend 서비스 계정에 객체 권한을 추가합니다. 사설 IP 추가 시 기존 DB가 재시작되므로, 실제 적용 시점과 앱의 TLS 접속 설정, 기존 VM 종료 시점은 [운영 README](prod/README.md)를 참고하세요.
+Terraform 상태는 환경별로 따로 관리하며, 현재 원격 상태 저장소 선언은 없습니다. 상세 리소스는 [스테이징 모듈](../modules/staging_modules)과 [운영 모듈](../modules/prod_modules)에서 확인할 수 있습니다.

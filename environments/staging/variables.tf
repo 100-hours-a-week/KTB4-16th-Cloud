@@ -79,7 +79,55 @@ variable "sql_deletion_protection" {
 }
 
 variable "runtime_enabled" {
-  description = "스테이징 VM과 Cloud SQL의 실행 상태. 최초 배포는 true, 사용하지 않을 때 false로 바꿔 적용합니다."
+  description = "모니터링·Redis VM과 Cloud SQL의 실행 상태. MIG는 mig-power.sh로 중지/시작합니다. 최초 배포는 true로 진행합니다."
   type        = bool
   default     = true
+}
+
+variable "monitoring_vm_machine_type" {
+  description = "스테이징 모니터링 VM의 머신 타입"
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "monitoring_vm_boot_disk_size_gb" {
+  description = "스테이징 모니터링 VM의 부팅 디스크 크기(GB)"
+  type        = number
+  default     = 30
+}
+
+variable "service_vm_boot_disk_sizes_gb" {
+  description = "서비스별 앱 VM 부팅 디스크 크기(GB). 지정하지 않은 서비스는 30GB입니다."
+  type        = map(number)
+  default = {
+    frontend = 20
+    backend  = 20
+    ai       = 20
+    chat     = 20
+  }
+}
+
+variable "service_container_images" {
+  description = "VM metadata의 app-image에 기록할 이미지 주소. Compose 실행은 별도로 구성합니다."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition     = alltrue([for key in keys(var.service_container_images) : contains(["frontend", "backend", "ai", "chat"], key)])
+    error_message = "이미지 키는 frontend, backend, ai, chat만 가능합니다."
+  }
+}
+
+variable "redis_vm_machine_type" {
+  type    = string
+  default = "e2-small"
+}
+
+variable "redis_vm_boot_disk_size_gb" {
+  description = "독립 Redis VM의 부팅 디스크 크기(GB)"
+  type        = number
+  default     = 20
+  validation {
+    condition     = var.redis_vm_boot_disk_size_gb >= 20 && floor(var.redis_vm_boot_disk_size_gb) == var.redis_vm_boot_disk_size_gb
+    error_message = "Redis 부팅 디스크 크기는 20GB 이상 정수여야 합니다."
+  }
 }

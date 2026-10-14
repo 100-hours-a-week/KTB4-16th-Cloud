@@ -101,10 +101,52 @@ resource "google_compute_firewall" "iap_ssh" {
   network       = local.network_name
   direction     = "INGRESS"
   source_ranges = ["35.235.240.0/20"]
-  target_tags   = ["${var.name_prefix}-app"]
+  target_tags   = ["${var.name_prefix}-app", "${var.name_prefix}-monitoring", "${var.name_prefix}-redis"]
 
   allow {
     protocol = "tcp"
     ports    = ["22"]
+  }
+}
+
+# 모니터링 VM에서 앱 VM의 서비스 포트로 내부 접근을 허용합니다.
+resource "google_compute_firewall" "monitoring_scrape" {
+  name        = "${var.name_prefix}-allow-monitoring-scrape"
+  network     = local.network_name
+  direction   = "INGRESS"
+  source_tags = ["${var.name_prefix}-monitoring"]
+  target_tags = ["${var.name_prefix}-app"]
+
+  allow {
+    protocol = "tcp"
+    ports    = [for port in distinct(values(var.service_ports)) : tostring(port)]
+  }
+}
+
+# 모니터링 VM의 Prometheus가 앱 VM의 Node Exporter를 수집합니다.
+resource "google_compute_firewall" "monitoring_node_exporter" {
+  name        = "${var.name_prefix}-allow-node-exporter"
+  network     = local.network_name
+  direction   = "INGRESS"
+  source_tags = ["${var.name_prefix}-monitoring"]
+  target_tags = ["${var.name_prefix}-app"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["9100"]
+  }
+}
+
+# 앱 VM의 로그 수집기가 모니터링 VM의 Loki로 로그를 전송합니다.
+resource "google_compute_firewall" "monitoring_loki_ingest" {
+  name        = "${var.name_prefix}-allow-loki-ingest"
+  network     = local.network_name
+  direction   = "INGRESS"
+  source_tags = ["${var.name_prefix}-app"]
+  target_tags = ["${var.name_prefix}-monitoring"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["3100"]
   }
 }

@@ -2,6 +2,10 @@ output "vm_public_ip" {
   value = module.mulo.vm_public_ip
 }
 
+output "vm_private_ip" {
+  value = module.mulo.vm_private_ip
+}
+
 output "runtime_enabled" {
   description = "현재 Terraform이 의도한 개발 VM과 Cloud SQL 실행 상태"
   value       = var.runtime_enabled

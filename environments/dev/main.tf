@@ -9,7 +9,7 @@ module "mulo" {
   zone              = var.zone
   startup_script    = file("${path.module}/bootstrap.sh")
 
-  vm_machine_type      = "e2-small"
+  vm_machine_type      = "e2-medium"
   vm_image             = "ubuntu-os-cloud/ubuntu-2204-lts"
   vm_boot_disk_size_gb = 30
   sql_tier             = "db-g1-small"

@@ -12,17 +12,18 @@ resource "google_compute_health_check" "service" {
 
 // 로드밸런서가 요청을 전달할 VM 그룹 설정
 resource "google_compute_backend_service" "service" {
-  for_each              = local.services
-  name                  = "${var.name_prefix}-${each.key}-service"
-  protocol              = "HTTP"
-  port_name             = "http"
-  load_balancing_scheme = "EXTERNAL_MANAGED" // 글로벌 외부 Application Load Balancer
-  timeout_sec           = each.key == "chat" ? 3600 : (each.key == "ai" ? 300 : 30)
+  for_each                        = local.services
+  name                            = "${var.name_prefix}-${each.key}-service"
+  protocol                        = "HTTP"
+  port_name                       = "http"
+  load_balancing_scheme           = "EXTERNAL_MANAGED" // 글로벌 외부 Application Load Balancer
+  connection_draining_timeout_sec = 300
+  timeout_sec                     = each.key == "chat" ? 3600 : (each.key == "ai" ? 300 : 30)
   // chat이면 timeout = 3600, ai는 300, 나머지 30
   health_checks = [google_compute_health_check.service[each.key].id] // 서비스 헬스체크 연결
 
   backend {
-    group           = google_compute_instance_group.service[each.key].self_link
+    group           = google_compute_instance_group_manager.service[each.key].instance_group
     balancing_mode  = "UTILIZATION"
     capacity_scaler = 1.0
   }

@@ -54,7 +54,7 @@ variable "mysql_version" {
 
 variable "postgres_version" {
   type    = string
-  default = "POSTGRES_16"
+  default = "POSTGRES_18"
 }
 
 variable "sql_tier" {

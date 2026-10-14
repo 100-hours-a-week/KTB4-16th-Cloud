@@ -6,8 +6,33 @@ output "site_url" {
   value = "https://${var.domain}"
 }
 
-output "vm_private_ips" {
-  value = { for key, vm in google_compute_instance.vm : key => vm.network_interface[0].network_ip }
+output "mig_names" {
+  description = "앱 서비스별 MIG 이름. 앱 VM 이름과 IP는 롤링 교체 시 바뀝니다."
+  value       = { for key, mig in google_compute_instance_group_manager.service : key => mig.name }
+}
+
+output "instance_template_names" {
+  value = { for key, template in google_compute_instance_template.service : key => template.name }
+}
+
+output "monitoring_vm_name" {
+  value = google_compute_instance.monitoring.name
+}
+
+output "monitoring_vm_private_ip" {
+  value = google_compute_address.monitoring_internal.address
+}
+
+output "redis_private_ip" {
+  value = google_compute_address.redis_internal.address
+}
+
+output "redis_vm_name" {
+  value = google_compute_instance.redis.name
+}
+
+output "redis_port" {
+  value = 6379
 }
 
 output "mysql_private_ips" {

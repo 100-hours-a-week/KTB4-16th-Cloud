@@ -6,8 +6,32 @@ output "site_url" {
   value = module.mulo.site_url
 }
 
-output "vm_private_ips" {
-  value = module.mulo.vm_private_ips
+output "mig_names" {
+  value = module.mulo.mig_names
+}
+
+output "instance_template_names" {
+  value = module.mulo.instance_template_names
+}
+
+output "monitoring_vm_name" {
+  value = module.mulo.monitoring_vm_name
+}
+
+output "monitoring_vm_private_ip" {
+  value = module.mulo.monitoring_vm_private_ip
+}
+
+output "redis_private_ip" {
+  value = module.mulo.redis_private_ip
+}
+
+output "redis_vm_name" {
+  value = module.mulo.redis_vm_name
+}
+
+output "redis_port" {
+  value = module.mulo.redis_port
 }
 
 output "mysql_private_ips" {

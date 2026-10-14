@@ -1,31 +1,58 @@
 # 운영 환경
 
-이 폴더가 운영 환경의 Terraform 실행 위치입니다. [`main.tf`](main.tf)는 운영 전용 [`modules/prod_modules`](../../modules/prod_modules)을 호출합니다. 기본값은 접두사 `mulo-v2`, `asia-northeast3` / `asia-northeast3-a`, 서브넷 `10.20.0.0/24`, Ubuntu 22.04 LTS `e2-medium`, VM당 30GB 디스크입니다. frontend·backend·chat VM 각 1대와 AI VM 2대가 생성됩니다.
+앱은 스테이징과 같은 MIG 배치를 사용하고, 기존 운영 backend·AI DB와 이미지 버킷을 재사용합니다. 신규 chat DB와 운영 전용 VPC·로드 밸런서·Cloud Tasks 큐를 구성합니다.
 
-운영은 전용 VPC, 기존 운영 DB·이미지 버킷 재사용, 신규 chat MySQL, 글로벌 HTTPS 로드 밸런서, Cloud Tasks 큐를 사용합니다. VM 규모는 스테이징과 같지만 DB와 버킷은 운영의 기존 데이터를 사용합니다. [환경 공통 안내](../README.md)에서 전체 구조와 앱 연결 방식을 확인하세요.
+[공통 요청 흐름](../README.md#스테이징운영의-요청-흐름) · [루트 모듈](main.tf) · [리소스 정의](../../modules/prod_modules)
 
+## VM 구성
 
+| 용도 | 관리 방식 | 수량 | 기본 사양 |
+| --- | --- | --- | --- |
+| frontend | MIG | 1대 | `e2-medium`, 30GB |
+| backend | MIG | 1대 | `e2-medium`, 30GB |
+| AI | MIG | 2대 | 각 `e2-medium`, 30GB |
+| chat | MIG | 1대 | `e2-medium`, 30GB |
+| Redis | 독립 VM | 1대 | `e2-small`, 30GB |
+| 모니터링 | 독립 VM | 1대 | `e2-medium`, 50GB |
 
-```bash
-# 저장소 루트에서 시작
-cd environments/prod
-# 이미 만들어 둔 terraform.tfvars의 운영 DB 이름·버킷·도메인 확인
-gcloud auth application-default login
-terraform init
-terraform fmt -check
-terraform validate
-terraform plan -out=tfplan
-# 계획 검토 후 실제 배포 시: terraform apply tfplan
-```
+총 VM 7대이며 기본 OS는 Ubuntu 22.04입니다. 앱 VM은 내부 IP를 자동 할당받고, Redis와 모니터링은 고정 내부 IP를 사용합니다. Redis와 모니터링은 앱 롤링 배포 대상에서 제외됩니다.
 
-## 수정 사항
+## 요청이 들어오는 경로
 
-모든 운영 VM(frontend·AI 2대·backend·chat)에 [`bootstrap.sh`](bootstrap.sh)가 VM 시작 시 적용됩니다. Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비하며 앱 배포는 포함하지 않습니다. 별도의 서비스별 `startup_scripts` 입력은 제거했습니다.
+사용자 요청은 **HTTPS LB → 경로에 해당하는 앱 MIG → 서비스 VM** 순서로 전달됩니다. 라우팅·포트·헬스체크는 [공통 경로 표](../README.md#스테이징운영의-요청-흐름)를 사용합니다.
 
-기존 `backend-db-1`의 `mulo`, `ai-db-1`의 `muro_ai`, `muro-bucket-1`을 그대로 사용합니다. [`imports.tf`](imports.tf)는 기존 DB 두 대를 운영 Terraform 상태에 가져오고, 각 DB에 v2 VPC의 사설 IP를 추가합니다. 기존 DB를 새로 생성하지 않으며 공인 IP·기존 허용 IP·백업·TLS 설정은 유지합니다. 두 DB에는 Terraform의 `prevent_destroy`와 Cloud SQL 삭제 보호가 적용됩니다. 버킷은 `data`로 조회해 버킷 자체를 관리하지 않고, 새 backend VM 서비스 계정에 `roles/storage.objectAdmin`만 추가합니다. `mulo-v2-mysql-chat` 인스턴스와 `mulo_chat` DB는 새로 생성합니다. 기존 DB가 다른 Terraform 상태에서 관리 중이면 동일한 인스턴스를 두 상태에 동시에 등록하지 말고 상태 이전을 먼저 계획해야 합니다.
+운영 전용 서브넷은 기본 `10.20.0.0/24`, 리소스 접두사는 `mulo-v2`입니다. VM의 외부 통신은 Cloud NAT, SSH 접속은 IAP를 사용합니다. LB의 연결 드레이닝은 **300초**, 요청 로그는 활성화되어 있습니다.
 
-기존 버킷의 현재 설정은 균일한 버킷 수준 액세스와 공개 액세스 방지가 켜져 있고, 버킷 IAM에 `allUsers` 읽기 권한이 없습니다. Terraform은 이 설정을 수정하지 않습니다. 이미지 조회·업로드는 backend 앱이 사용자 권한을 검사한 다음 버킷에 접근하도록 배포해야 합니다.
+## 기존 리소스와 신규 리소스
 
-운영 앱은 `mysql_private_ips.be`(backend MySQL), `postgres_private_ip`(AI PostgreSQL), `mysql_private_ips.chat`(신규 chat MySQL)으로 사설 IP에 직접 연결합니다. DB 사용자·비밀번호와 앱 연결 설정은 별도로 준비해야 합니다. 기존 운영 DB의 TLS 모드는 `ENCRYPTED_ONLY`이므로 앱의 DB 클라이언트에도 TLS를 설정해야 합니다. 기존 VM은 기존 공인 IP 접속을 유지할 수 있지만, **사설 IP를 추가하는 작업 중 두 DB가 재시작되어 기존 운영 서비스에도 일시 중단이 발생합니다.** 실제 적용은 점검 시간을 정해 진행해야 합니다. [Cloud SQL 사설 IP 추가 동작](https://docs.cloud.google.com/sql/docs/mysql/configure-private-ip)
+| 대상 | 처리 방식 | 데이터 구성 |
+| --- | --- | --- |
+| backend MySQL | 기존 인스턴스를 Terraform에서 관리 | MySQL 8.4, 기존 DB 사용 |
+| AI PostgreSQL | 기존 인스턴스를 Terraform에서 관리 | PostgreSQL 18, 기존 DB 사용 |
+| chat MySQL | `mulo-v2-mysql-chat` 생성 | MySQL 8.4, `mulo_chat` DB 생성 |
+| 이미지 버킷 | 기존 버킷 조회 | backend에 객체 관리 권한 부여 |
 
-`terraform plan`에서 **2개 import, 기존 DB의 `private_network` 변경 2개, 신규 chat DB 생성 1개**를 확인하세요. 그 외 기존 DB 설정의 변경이나 교체·삭제가 계획에 나타나면 적용하지 말고 설정을 다시 맞춰야 합니다. v2 앱이 기존 데이터에 연결되고 이미지 조회·업로드가 동작하는지 확인한 뒤 트래픽을 전환하세요. 기존 운영 VM 삭제는 이 Terraform 코드에 포함되지 않았으며, 전환 후 별도로 처리해야 합니다.
+기존 DB 이름은 `existing_backend_mysql_instance_name`, `existing_ai_postgres_instance_name`으로 지정합니다. [imports.tf](imports.tf)가 두 인스턴스를 Terraform 관리 대상으로 연결합니다. 기존 버킷 이름은 `image_bucket_name`으로 지정합니다.
+
+기존 DB에는 운영 VPC의 사설 IP 연결을 추가하면서 공인 IP와 TLS 필수 설정도 유지합니다. 새 chat DB는 사설 IP만 사용합니다. 기존 DB 두 대의 기본 사양은 `db-g1-small`, 디스크 크기는 기존 값을 유지하며, 신규 chat DB는 기본 20GB입니다. 백업·MySQL binlog·PostgreSQL PITR과 디스크 자동 확장은 활성화되어 있습니다.
+
+기존 DB에는 삭제 보호가 적용되고 Terraform의 삭제·교체도 차단합니다. 기존 버킷 설정과 객체는 직접 관리 대상으로 등록하지 않으며, backend 계정의 버킷 권한만 관리합니다.
+
+## 앱과 공용 서비스
+
+[bootstrap.sh](bootstrap.sh)가 Docker·Compose 등 기본 실행 환경을 준비하고, 앱·Redis·모니터링 스택은 직접 배포합니다. `service_container_images`는 VM 메타데이터의 이미지 주소이며 Compose 실행은 포함하지 않습니다. 롤링 교체 방식은 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
+
+Cloud Tasks 큐는 기본 `mulo-v2-ai-task`입니다. Redis·모니터링의 내부 통신과 앱 권한 범위는 [공통 구성](../README.md)에 정리되어 있습니다.
+
+운영은 staging과 달리 24시간 실행하므로 별도 전원 관리 스크립트가 필요하지 않습니다.
+
+## 주요 출력값
+
+| 출력 | 내용 |
+| --- | --- |
+| `load_balancer_ip`, `site_url` | 외부 접속 주소 |
+| `mig_names`, `instance_template_names` | 앱 MIG와 템플릿 이름 |
+| `mysql_private_ips`, `postgres_private_ip` | 기존 DB와 chat DB의 사설 주소 |
+| `redis_private_ip`, `redis_port` | Redis 연결 주소·포트 |
+| `monitoring_vm_name`, `monitoring_vm_private_ip` | 모니터링 VM 이름·주소 |
+| `image_bucket_name`, `ai_tasks_queue_id` | 이미지 버킷과 AI 작업 큐 |

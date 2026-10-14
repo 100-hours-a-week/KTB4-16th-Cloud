@@ -77,6 +77,6 @@ resource "google_sql_database_instance" "postgres" {
 }
 
 resource "google_sql_database" "ai" {
-  name     = "mulo_ai"
+  name     = "muro_ai"
   instance = google_sql_database_instance.postgres.name
 }

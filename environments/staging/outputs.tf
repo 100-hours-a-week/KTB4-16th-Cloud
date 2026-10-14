@@ -3,7 +3,7 @@ output "load_balancer_ip" {
 }
 
 output "runtime_enabled" {
-  description = "현재 Terraform이 의도한 스테이징 VM과 Cloud SQL 실행 상태"
+  description = "현재 Terraform이 의도한 모니터링·Redis VM과 Cloud SQL 실행 상태. MIG 전원 상태는 별도로 관리합니다."
   value       = var.runtime_enabled
 }
 
@@ -11,8 +11,32 @@ output "site_url" {
   value = module.mulo.site_url
 }
 
-output "vm_private_ips" {
-  value = module.mulo.vm_private_ips
+output "mig_names" {
+  value = module.mulo.mig_names
+}
+
+output "instance_template_names" {
+  value = module.mulo.instance_template_names
+}
+
+output "monitoring_vm_name" {
+  value = module.mulo.monitoring_vm_name
+}
+
+output "monitoring_vm_private_ip" {
+  value = module.mulo.monitoring_vm_private_ip
+}
+
+output "redis_private_ip" {
+  value = module.mulo.redis_private_ip
+}
+
+output "redis_vm_name" {
+  value = module.mulo.redis_vm_name
+}
+
+output "redis_port" {
+  value = module.mulo.redis_port
 }
 
 output "mysql_private_ips" {
@@ -49,4 +73,13 @@ output "task_invoker_service_account" {
 
 output "ai_task_target_url" {
   value = module.mulo.ai_task_target_url
+}
+
+output "mig_control" {
+  description = "mig-power.sh가 사용하는 환경별 프로젝트·존·MIG 이름"
+  value = {
+    project_id = var.project_id
+    zone       = var.zone
+    mig_names  = module.mulo.mig_names
+  }
 }

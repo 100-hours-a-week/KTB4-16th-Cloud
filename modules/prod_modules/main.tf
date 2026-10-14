@@ -6,14 +6,6 @@ locals {
     chat     = { port = var.service_ports.chat, health_path = var.health_paths.chat }
   }
 
-  # 서비스와 VM을 분리합니다. ai-2는 ai 서비스 계정을 공유합니다.
-  vm_instances = merge({
-    frontend = "frontend"
-    ai       = "ai"
-    backend  = "backend"
-    chat     = "chat"
-  }, var.ai_vm_count == 2 ? { "ai-2" = "ai" } : {})
-
   required_apis = toset(concat([
     "compute.googleapis.com",
     "iam.googleapis.com",

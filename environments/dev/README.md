@@ -1,43 +1,46 @@
 # 개발 환경
 
-이 폴더가 개발 환경의 Terraform 실행 위치입니다. [`main.tf`](main.tf)는 [`modules/dev_modules`](../../modules/dev_modules)을 호출합니다. Ubuntu 22.04 LTS `e2-small` VM 1대(30GB 디스크)에 frontend·AI·backend·chat을 함께 배포하는 구성입니다. Terraform은 VM과 고정 공인 IP, Cloud SQL, 비공개 이미지 버킷을 만듭니다. Cloud Tasks와 로드 밸런서는 없습니다.
+서비스를 한 VM에서 개발·검증하는 구성입니다. frontend·backend·AI·chat 컨테이너와 Nginx를 같은 VM에 배치하고, DB는 Cloud SQL을 사용합니다.
 
-## 설정과 실행
+[환경 비교](../README.md) · [루트 모듈](main.tf) · [리소스 정의](../../modules/dev_modules)
 
-```bash
-# 저장소 루트에서 시작
-cd environments/dev
-cp terraform.tfvars.example terraform.tfvars
-# project_id, domain, image_bucket_name을 실제 개발 값으로 확인·수정
-gcloud auth application-default login
-terraform init
-terraform fmt -check
-terraform validate
-terraform plan -out=tfplan
-# 계획 검토 후 실제 배포 시: terraform apply tfplan
+## 리소스 구성
+
+| 리소스 | 기본 구성 | 역할 |
+| --- | --- | --- |
+| 앱 VM | Ubuntu 22.04, `e2-medium`, 30GB | 서비스 4개와 Nginx 실행 환경 |
+| MySQL | 8.4, `db-g1-small`, 20GB | `mulo`·`mulo_chat` DB |
+| PostgreSQL | 18, `db-g1-small`, 20GB | AI용 `muro_ai` DB |
+| GCS | 새 비공개 버킷 | 이미지 저장 |
+| 네트워크 | 기존 `default` VPC·서브넷 | VM과 방화벽 배치 |
+
+VM의 공인 IP와 내부 IP는 모두 예약된 고정 주소입니다. 서비스 계정에는 Artifact Registry 이미지 읽기, 로그·지표 전송, 이미지 버킷의 객체 관리 권한을 부여합니다.
+
+## 요청과 데이터 흐름
+
+```mermaid
+flowchart LR
+  User[사용자] --> VM[단일 VM · Nginx와 앱 4개]
+  VM --> MySQL[MySQL · backend와 chat]
+  VM --> PG[PostgreSQL · AI]
+  VM --> GCS[이미지 버킷]
 ```
 
+DNS는 VM의 고정 공인 IP를 가리킵니다. 외부에 80·443 포트를 열어 두며, HTTPS 인증서와 Nginx의 서비스별 경로 분기는 앱 배포 시 직접 구성합니다.
 
-## HTTPS와 앱 배포
+Cloud SQL은 공인 IP를 사용합니다. 접속 허용 주소는 개발 VM의 고정 공인 IP `/32`이고, 연결에는 TLS를 요구합니다. DB 사용자와 앱 연결 정보는 직접 구성합니다.
 
-적용 후 `terraform output dns_a_record`의 `address`를 개발 도메인의 DNS A 레코드로 등록합니다. 이 주소는 VM의 고정 공인 IP입니다. [`bootstrap.sh`](bootstrap.sh)는 VM 시작 시 Docker·Compose, Google Cloud CLI, Ops Agent, 기본 유틸리티와 2GB 스왑을 준비합니다. VM 방화벽은 외부 TCP 80·443번을 허용합니다.
+## 환경 특성
 
-Nginx·Certbot 설정과 인증서 발급, 서비스 컨테이너 시작은 직접 배포해야 합니다. `terraform output site_url`은 `https://<domain>`을 표시할 뿐 HTTPS가 이미 동작한다는 뜻은 아닙니다. Nginx에서 `/api`·`/image`를 backend, `/ai/search`를 AI, `/ws`를 chat, 나머지를 frontend로 보내도록 구성할 수 있습니다. 네 서비스를 한 `e2-small`에 올리는 만큼 실제 메모리 사용량을 확인하세요.
+별도 로드 밸런서·MIG·Cloud Tasks·Redis VM·모니터링 VM을 생성하지 않습니다. 공통 초기 설정은 [bootstrap.sh](bootstrap.sh)가 담당합니다.
 
-## 데이터베이스와 이미지
+개발 DB는 자동 백업·MySQL binlog·PostgreSQL PITR·디스크 자동 확장이 꺼져 있습니다. `runtime_enabled`는 개발 VM과 Cloud SQL의 실행 상태를 제어합니다.
 
-MySQL 인스턴스 1대에 `mulo`·`mulo_chat` DB를, PostgreSQL 인스턴스 1대에 `mulo_ai` DB를 만듭니다. 두 인스턴스는 공개 IP를 가지지만 개발 VM의 고정 IP `/32`만 접속하도록 허용하고 TLS를 요구합니다. `terraform output mysql_public_ip`, `terraform output postgres_public_ip`로 주소를 확인합니다. DB 사용자·비밀번호는 Terraform 코드에서 만들지 않습니다. PostgreSQL의 pgvector는 `mulo_ai`에 접속해 [SQL 파일](../../enable-pgvector.sql)을 실행해야 합니다.
+## 주요 출력값
 
-이미지 버킷은 공개하지 않습니다. 개발 VM 서비스 계정에 해당 버킷의 객체 관리 권한이 있으므로, 앱이 인증과 권한 확인 후 이미지 업로드·조회 요청을 처리해야 합니다. 전체 환경 비교는 [공통 안내](../README.md)를 참고하세요.
-
-## 사용하지 않을 때 중지하기
-
-개발 DB의 자동 백업, MySQL binlog, PostgreSQL PITR, 디스크 자동 확장은 꺼져 있습니다. `terraform.tfvars`의 `runtime_enabled = true`로 **최초 생성**한 뒤, 사용하지 않을 때 `false`로 바꾸고 아래 명령을 실행하세요. 개발 VM 1대와 Cloud SQL 2대가 중지되며 데이터는 남습니다. 다시 사용할 때 `true`로 바꿔 같은 명령을 실행합니다.
-
-```bash
-terraform plan -out=tfplan
-terraform apply tfplan
-terraform output runtime_enabled
-```
-
-중지 중에는 사이트와 DB에 접속할 수 없습니다. VM 부팅 디스크·고정 공인 IP, Cloud SQL 저장 공간과 버킷 객체 비용은 남습니다. DB의 초기 저장 공간은 20GB이며 자동 확장을 껐으므로 용량을 확인하세요. 자동 백업이 없으니 시연·테스트 데이터만 넣으세요. 자세한 비용과 제한은 [공통 안내](../README.md#개발스테이징-켜기와-끄기)를 참고하세요.
+| 출력 | 내용 |
+| --- | --- |
+| `vm_public_ip`, `vm_private_ip` | 개발 VM의 고정 주소 |
+| `dns_a_record`, `site_url` | DNS 등록 정보와 서비스 URL |
+| `mysql_public_ip`, `postgres_public_ip` | DB 접속 주소 |
+| `image_bucket_name`, `vm_service_account` | 이미지 버킷과 VM 서비스 계정 |

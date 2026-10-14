@@ -2,6 +2,10 @@ output "vm_public_ip" {
   value = google_compute_address.vm.address
 }
 
+output "vm_private_ip" {
+  value = google_compute_address.vm_internal.address
+}
+
 output "site_url" {
   value = "https://${var.domain}"
 }

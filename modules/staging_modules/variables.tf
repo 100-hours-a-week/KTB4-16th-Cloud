@@ -49,6 +49,36 @@ variable "vm_boot_disk_size_gb" {
   default     = 30
 }
 
+variable "service_vm_boot_disk_sizes_gb" {
+  description = "서비스별 앱 VM 부팅 디스크 크기(GB). 미지정 서비스는 vm_boot_disk_size_gb를 사용합니다."
+  type        = map(number)
+  default     = {}
+  validation {
+    condition = alltrue([
+      for service, size in var.service_vm_boot_disk_sizes_gb :
+      contains(["frontend", "backend", "ai", "chat"], service) && size >= 20 && floor(size) == size
+    ])
+    error_message = "서비스는 frontend/backend/ai/chat이며 디스크 크기는 20GB 이상 정수여야 합니다."
+  }
+}
+
+variable "monitoring_vm_machine_type" {
+  description = "스테이징 모니터링 VM의 머신 타입"
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "monitoring_vm_boot_disk_size_gb" {
+  description = "스테이징 모니터링 VM의 부팅 디스크 크기(GB)"
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.monitoring_vm_boot_disk_size_gb >= 20
+    error_message = "모니터링 VM의 부팅 디스크는 20GB 이상이어야 합니다."
+  }
+}
+
 variable "ai_vm_count" {
   description = "스테이징 AI VM 수. 현재 스테이징 환경은 2대를 사용합니다."
   type        = number
@@ -111,7 +141,7 @@ variable "health_paths" {
 }
 
 variable "bootstrap_script" {
-  description = "모든 서비스 VM에 공통으로 실행할 초기 설정 스크립트"
+  description = "앱·모니터링·Redis VM에 공통으로 실행할 초기 설정 스크립트"
   type        = string
 }
 
@@ -122,7 +152,7 @@ variable "mysql_version" {
 
 variable "postgres_version" {
   type    = string
-  default = "POSTGRES_16"
+  default = "POSTGRES_18"
 }
 
 variable "sql_tier" {
@@ -137,7 +167,32 @@ variable "sql_deletion_protection" {
 }
 
 variable "runtime_enabled" {
-  description = "true이면 스테이징 VM 5대와 Cloud SQL 3대를 켜고, false이면 중지합니다. 최초 생성은 true로 진행해야 합니다."
+  description = "모니터링·Redis VM과 Cloud SQL의 실행 상태. 앱 MIG는 mig-power.sh로 중지/시작합니다. 최초 생성은 true로 진행합니다."
   type        = bool
   default     = true
+}
+
+variable "service_container_images" {
+  description = "VM metadata의 app-image에 기록할 이미지 주소. Compose 실행은 별도로 구성합니다."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition     = alltrue([for key in keys(var.service_container_images) : contains(["frontend", "backend", "ai", "chat"], key)])
+    error_message = "이미지 키는 frontend, backend, ai, chat만 가능합니다."
+  }
+}
+
+variable "redis_vm_machine_type" {
+  type    = string
+  default = "e2-small"
+}
+
+variable "redis_vm_boot_disk_size_gb" {
+  description = "독립 Redis VM의 부팅 디스크 크기(GB)"
+  type        = number
+  default     = 20
+  validation {
+    condition     = var.redis_vm_boot_disk_size_gb >= 20 && floor(var.redis_vm_boot_disk_size_gb) == var.redis_vm_boot_disk_size_gb
+    error_message = "Redis 부팅 디스크 크기는 20GB 이상 정수여야 합니다."
+  }
 }
