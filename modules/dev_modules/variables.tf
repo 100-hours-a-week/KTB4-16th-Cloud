@@ -30,7 +30,7 @@ variable "image_bucket_name" {
 
 variable "vm_machine_type" {
   type    = string
-  default = "e2-small"
+  default = "e2-medium"
 }
 
 variable "vm_image" {

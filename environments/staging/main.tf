@@ -11,8 +11,13 @@ module "mulo" {
   subnet_cidr       = var.subnet_cidr
   service_ports     = var.service_ports
   health_paths      = var.health_paths
-  # 스크립트 내용 변경도 앱 템플릿 변경과 롤링 교체를 유발할 수 있습니다.
-  bootstrap_script = file("${path.module}/bootstrap.sh")
+  # 앱과 독립 VM의 스크립트를 분리해 Redis·모니터링의 기존 설치를 유지합니다.
+  bootstrap_script              = file("${path.module}/bootstrap.sh")
+  base_bootstrap_script         = file("${path.module}/base-bootstrap.sh")
+  shutdown_script               = file("${path.module}/shutdown.sh")
+  service_image_tags            = var.service_image_tags
+  internal_dns_domain           = var.internal_dns_domain
+  service_max_rate_per_instance = var.service_max_rate_per_instance
 
   service_container_images      = var.service_container_images
   service_vm_boot_disk_sizes_gb = var.service_vm_boot_disk_sizes_gb

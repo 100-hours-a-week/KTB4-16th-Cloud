@@ -14,21 +14,27 @@ resource "google_compute_instance_template" "service" {
   region       = var.region
   tags         = ["${var.name_prefix}-app"]
   labels       = { service = each.key, environment = "staging" }
-  # app-image는 배포 시 참고할 주소이며, 이미지를 내려받거나 앱을 실행하지 않습니다.
+  # 부팅 스크립트가 이미지 경로·태그와 Secret Manager의 env를 읽어 앱을 실행합니다.
   metadata = merge(
     {
-      enable-oslogin = "TRUE"
-      redis-host     = google_compute_address.redis_internal.address
-      redis-port     = "6379"
+      enable-oslogin  = "TRUE"
+      redis-host      = google_compute_address.redis_internal.address
+      redis-port      = "6379"
+      app-env-secret  = google_secret_manager_secret.app_env[each.key].secret_id
+      app-port        = tostring(each.value.port)
+      shutdown-script = var.shutdown_script
     },
-    lookup(var.service_container_images, each.key, "") != "" ? { app-image = var.service_container_images[each.key] } : {}
+    lookup(var.service_container_images, each.key, "") != "" ? {
+      app-image     = var.service_container_images[each.key]
+      app-image-tag = lookup(var.service_image_tags, each.key, "")
+    } : {}
   )
   metadata_startup_script = var.bootstrap_script
 
   disk {
     source_image = var.vm_image
     boot         = true
-    # 교체 시 새 디스크를 만듭니다. 앱 설정을 복구하려면 이미지나 별도 배포 구성이 필요합니다.
+    # 교체 시 새 디스크를 만들며 부팅 스크립트가 이미지와 env로 앱을 복구합니다.
     auto_delete  = true
     disk_size_gb = lookup(var.service_vm_boot_disk_sizes_gb, each.key, var.vm_boot_disk_size_gb)
     disk_type    = "pd-balanced"
@@ -46,7 +52,13 @@ resource "google_compute_instance_template" "service" {
   lifecycle {
     # 새 템플릿을 먼저 만들어 MIG가 참조 중인 템플릿을 바로 삭제하지 않습니다.
     create_before_destroy = true
+    precondition {
+      condition     = lookup(var.service_container_images, each.key, "") == "" || lookup(var.service_image_tags, each.key, "") != ""
+      error_message = "이미지를 지정한 서비스에는 service_image_tags의 최초 태그도 지정해야 합니다."
+    }
   }
+  # 새 VM을 만들기 전에 이미지·시크릿 읽기 권한을 부여합니다.
+  depends_on = [google_secret_manager_secret_iam_member.vm_env_reader, google_project_iam_member.vm_image_reader]
 }
 
 resource "google_compute_instance_group_manager" "service" {
@@ -68,12 +80,11 @@ resource "google_compute_instance_group_manager" "service" {
     initial_delay_sec = 600
   }
   instance_lifecycle_policy {
-    # 앱은 수동 설치하므로 HTTP 실패로 VM을 자동 재생성하지 않습니다.
-    # VM 자체 장애 복구와 롤링 업데이트의 헬스체크는 별도로 동작합니다.
-    on_failed_health_check = "DO_NOTHING"
+    # 이미지가 없는 chat을 반복 재생성하지 않습니다. 준비된 앱은 HTTP 실패도 복구합니다.
+    on_failed_health_check = lookup(var.service_container_images, each.key, "") != "" ? "REPAIR" : "DO_NOTHING"
   }
   # 새 VM 한 대가 정상 상태가 된 뒤 기존 VM을 교체합니다.
-  # 새 VM에 앱을 배포하지 않으면 헬스체크 확인 단계에서 업데이트가 대기할 수 있습니다.
+  # 새 VM의 부팅·env·이미지 실행이 실패하면 기존 정상 VM을 유지하고 업데이트가 대기합니다.
   update_policy {
     type                  = "PROACTIVE"
     minimal_action        = "REPLACE"
@@ -83,9 +94,10 @@ resource "google_compute_instance_group_manager" "service" {
   }
 
   # 중지/시작은 MIG stop-instances/start-instances API로 관리합니다.
-  # target_size=0 축소로 수동 설치한 앱 디스크를 삭제하지 않습니다.
+  # target_size=0 축소 대신 VM과 디스크를 유지한 채 전원을 변경합니다.
   lifecycle {
-    ignore_changes = [target_size, target_stopped_size]
+    # CD의 템플릿 변경과 mig-power.sh의 전원 상태를 모두 유지합니다.
+    ignore_changes = [version, target_size, target_stopped_size]
   }
 
   depends_on = [google_compute_router_nat.app, google_compute_firewall.load_balancer]
@@ -123,7 +135,7 @@ resource "google_compute_instance" "monitoring" {
   labels                    = { service = "monitoring", environment = "staging" }
   metadata = {
     enable-oslogin = "TRUE"
-    startup-script = var.bootstrap_script
+    startup-script = var.base_bootstrap_script
   }
 
   boot_disk {

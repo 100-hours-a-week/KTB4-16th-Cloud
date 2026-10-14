@@ -21,7 +21,8 @@ resource "google_compute_instance" "redis" {
   tags                      = ["${var.name_prefix}-redis"]
   labels                    = { service = "redis", environment = "prod" }
   metadata                  = { enable-oslogin = "TRUE" }
-  metadata_startup_script   = var.bootstrap_script
+  # 기존 스크립트 내용을 유지해 앱 자동 부팅 작업으로 Redis VM을 교체하지 않습니다.
+  metadata_startup_script = var.base_bootstrap_script
 
   boot_disk {
     # VM 제거 시 디스크는 남깁니다. 교체 VM에 자동 연결되는 것은 아닙니다.

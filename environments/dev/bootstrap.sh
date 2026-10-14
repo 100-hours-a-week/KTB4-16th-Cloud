@@ -14,7 +14,7 @@ fi
 
 timedatectl set-timezone Asia/Seoul
 
-# e2-small에서 패키지와 컨테이너를 설치하기 전에 스왑을 준비합니다.
+# e2-medium에서 패키지와 컨테이너를 설치하기 전에 스왑을 준비합니다.
 if [ ! -f /swapfile ]; then
   fallocate -l 2G /swapfile
 fi

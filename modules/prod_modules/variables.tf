@@ -139,7 +139,17 @@ variable "health_paths" {
 }
 
 variable "bootstrap_script" {
-  description = "모든 서비스 VM에 공통으로 실행할 초기 설정 스크립트"
+  description = "메타데이터와 Secret Manager로 앱을 실행하는 MIG 부팅 스크립트"
+  type        = string
+}
+
+variable "base_bootstrap_script" {
+  description = "독립 Redis·모니터링 VM의 기존 기반 설치 스크립트"
+  type        = string
+}
+
+variable "shutdown_script" {
+  description = "앱 VM 종료 시 컨테이너를 정상 종료하는 스크립트"
   type        = string
 }
 
@@ -162,18 +172,59 @@ variable "sql_deletion_protection" {
 }
 
 variable "service_container_images" {
-  description = "VM metadata의 app-image에 기록할 이미지 주소. Compose 실행은 별도로 구성합니다."
+  description = "app-image에 기록할 Docker 이미지 경로. 태그는 service_image_tags로 분리합니다."
   type        = map(string)
   default     = {}
   validation {
     condition     = alltrue([for key in keys(var.service_container_images) : contains(["frontend", "backend", "ai", "chat"], key)])
     error_message = "이미지 키는 frontend, backend, ai, chat만 가능합니다."
   }
+  validation {
+    condition     = alltrue([for image in values(var.service_container_images) : image == "" || can(regex("^[^:@[:space:]]+/[^:@[:space:]]+$", image))])
+    error_message = "이미지 경로에는 태그(:태그), digest(@값), 공백을 포함하지 마세요. 태그는 service_image_tags에 지정합니다."
+  }
+}
+
+# chat은 이미지가 준비되면 경로와 최초 태그를 함께 추가합니다.
+variable "service_image_tags" {
+  description = "app-image-tag에 기록할 최초 태그. 이후 실제 배포 태그는 CD가 관리합니다."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = alltrue([
+      for service, tag in var.service_image_tags :
+      contains(["frontend", "backend", "ai", "chat"], service) && (tag == "" || can(regex("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", tag)))
+    ])
+    error_message = "태그 키는 frontend/backend/ai/chat이며 값은 올바른 Docker 태그여야 합니다."
+  }
+}
+
+variable "service_max_rate_per_instance" {
+  description = "내부 TCP LB와 MIG를 공유하는 외부 LB의 VM당 목표 RPS. 요청 차단 한도가 아닙니다."
+  type        = map(number)
+  default     = { backend = 30, ai = 30 }
+
+  validation {
+    condition = alltrue([
+      for service in ["backend", "ai"] : try(var.service_max_rate_per_instance[service] > 0, false)
+    ]) && alltrue([for service in keys(var.service_max_rate_per_instance) : contains(["backend", "ai"], service)])
+    error_message = "backend와 ai의 VM당 목표 RPS를 양수로 지정해야 합니다."
+  }
+}
+
+variable "internal_dns_domain" {
+  description = "backend와 AI 내부 LB의 DNS 도메인. 마지막 점(.)을 포함합니다."
+  type        = string
+  default     = "prod.mulo.internal."
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9.-]*\\.$", var.internal_dns_domain))
+    error_message = "내부 DNS 도메인은 소문자·숫자·점·하이픈으로 작성하고 점(.)으로 끝나야 합니다."
+  }
 }
 
 variable "redis_vm_machine_type" {
   type    = string
-  default = "e2-small"
+  default = "e2-medium"
 }
 
 variable "redis_vm_boot_disk_size_gb" {

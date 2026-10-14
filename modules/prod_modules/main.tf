@@ -10,6 +10,8 @@ locals {
   required_apis = toset(concat([
     "compute.googleapis.com",
     "iam.googleapis.com",
+    "secretmanager.googleapis.com",
+    "dns.googleapis.com",
     "servicenetworking.googleapis.com",
     "sqladmin.googleapis.com",
     "storage.googleapis.com",

@@ -2,6 +2,8 @@
 
 운영과 같은 서비스 배치로 앱 연결과 롤링 배포를 검증하는 환경입니다. 앱은 MIG 4개로 관리하고, DB·이미지 버킷·네트워크는 스테이징 전용으로 생성합니다.
 
+앱 자동 부팅을 처음 적용할 때는 [최초 전환 순서](../BOOTSTRAP.md#2-최초-적용)부터 진행합니다. 시크릿·env를 준비하고 새 템플릿을 연결한 뒤 아래의 일반 전원 관리 절차를 사용합니다.
+
 [공통 요청 흐름](../README.md#스테이징운영의-요청-흐름) · [루트 모듈](main.tf) · [리소스 정의](../../modules/staging_modules)
 
 ## VM 구성
@@ -12,7 +14,7 @@
 | backend | MIG | 1대 | `e2-medium`, 20GB |
 | AI | MIG | 2대 | 각 `e2-medium`, 20GB |
 | chat | MIG | 1대 | `e2-medium`, 20GB |
-| Redis | 독립 VM | 1대 | `e2-small`, 20GB |
+| Redis | 독립 VM | 1대 | `e2-medium`, 20GB |
 | 모니터링 | 독립 VM | 1대 | `e2-medium`, 30GB |
 
 총 VM 7대이며 모두 Ubuntu 22.04를 사용합니다. 앱 VM은 내부 IP를 자동 할당받고, Redis와 모니터링은 고정 내부 IP를 사용합니다. Redis와 모니터링은 앱 롤링 배포 대상에서 제외됩니다.
@@ -39,7 +41,9 @@ Cloud Tasks는 `mulo-v2-staging-ai-task` 큐와 OIDC용 계정을 생성합니�
 
 ## VM 관리
 
-[bootstrap.sh](bootstrap.sh)가 최초 부팅 시 Docker·Compose 등 기본 실행 환경을 준비하고, 설정 완료 후 재부팅에서는 설치를 건너뜁니다. 앱·Redis·모니터링 스택은 직접 배포하며, MIG의 새 VM에는 Compose와 앱 설정을 다시 준비해야 합니다. 교체·헬스체크 동작은 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
+[bootstrap.sh](bootstrap.sh)는 최초에 Docker·Google Cloud CLI·Ops Agent와 스왑을 준비하고, 매 부팅마다 이미지와 Secret Manager의 env로 앱을 실행합니다. Node Exporter도 자동으로 실행합니다. Redis·모니터링은 [base-bootstrap.sh](base-bootstrap.sh)의 기존 설치 방식을 유지하며 서비스는 직접 관리합니다.
+
+최초 적용과 CD 연결은 [앱 부팅 전환 안내](../BOOTSTRAP.md), 교체·헬스체크·내부 서비스 주소는 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
 
 앱 VM의 전원은 [mig-power.sh](mig-power.sh), 독립 모니터링·Redis VM과 Cloud SQL의 실행 상태는 `runtime_enabled`가 담당합니다.
 
@@ -64,6 +68,8 @@ cd environments/staging
 중지는 LB 연결 드레이닝과 VM 종료 때문에 시간이 걸릴 수 있습니다. 대기 중에는 상태가 바뀌거나 30초가 지날 때 진행 상황을 표시합니다. `start` 완료는 VM이 켜졌다는 뜻이며 앱의 헬스체크 상태는 별도로 확인합니다.
 
 ### 스테이징 전체 중지와 시작
+
+다음 명령은 앱 자동 부팅의 최초 전환을 완료한 환경 기준입니다. 최초 전환 중에는 [부팅 전환 안내](../BOOTSTRAP.md#2-최초-적용)의 준비·시작·적용 순서를 사용합니다.
 
 `terraform.tfvars`의 `runtime_enabled`는 모니터링·Redis VM과 Cloud SQL 3대를 함께 제어합니다. `false`는 중지, `true`는 실행이며, 값을 바꾼 뒤 Terraform으로 적용해야 반영됩니다. 아래 명령은 모두 `environments/staging`에서 실행합니다.
 
@@ -92,7 +98,10 @@ terraform apply tfplan
 | 출력 | 내용 |
 | --- | --- |
 | `load_balancer_ip`, `site_url` | 외부 접속 주소 |
-| `mig_names`, `instance_template_names` | 앱 MIG와 템플릿 이름 |
+| `mig_names`, `mig_instance_template_urls` | 앱 MIG와 현재 연결 템플릿 |
+| `instance_template_names` | Terraform이 만든 기반 템플릿 |
+| `ai_base_url`, `backend_internal_url` | 앱 env에 넣을 고정 내부 주소 |
+| `app_env_secret_names` | 서비스별 env 시크릿 이름 |
 | `mysql_private_ips`, `postgres_private_ip` | DB 사설 주소 |
 | `redis_private_ip`, `redis_port` | Redis 연결 주소·포트 |
 | `monitoring_vm_name`, `monitoring_vm_private_ip` | 모니터링 VM 이름·주소 |

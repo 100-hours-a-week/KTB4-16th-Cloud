@@ -12,6 +12,17 @@ MULO의 개발·스테이징·운영 인프라를 Google Cloud에 정의합니�
 
 스테이징과 운영에는 Redis VM과 모니터링 VM도 각각 1대씩 있습니다. 두 VM은 독립 VM이며 고정 내부 IP를 사용합니다.
 
+## 이번 앱 자동 부팅을 처음 적용할 때
+
+[앱 부팅 전환 안내의 최초 적용](environments/BOOTSTRAP.md#2-최초-적용)을 staging부터 순서대로 진행합니다.
+
+1. 실행 계정 권한을 확인하고 시크릿·권한·DNS를 먼저 적용합니다.
+2. 서비스별 실제 env를 등록합니다.
+3. 최초 연결용 MIG 설정으로 새 부팅 템플릿을 적용하고 앱·LB 상태를 확인합니다.
+4. MIG의 version 무시와 일반 롤링 정책을 복구합니다.
+
+시크릿 등록 전에 전체 `terraform apply`를 실행하면 새 VM이 env를 읽지 못할 수 있습니다. staging에서 정상 부팅을 확인한 뒤 prod에도 같은 순서로 적용합니다. 환경별 README의 일반 중지·시작 절차는 최초 전환을 마친 뒤 사용합니다.
+
 ## 저장소 구조
 
 ```text
@@ -30,11 +41,11 @@ enable-pgvector.sql  AI DB의 vector 확장 SQL
 
 ## 관리 범위
 
-Terraform은 VM·네트워크·방화벽·Cloud SQL·이미지 버킷과 서비스 계정을 관리합니다. 스테이징·운영에는 로드 밸런서, 인스턴스 템플릿, MIG, Cloud Tasks 큐도 포함됩니다.
+Terraform은 VM·네트워크·방화벽·Cloud SQL·이미지 버킷과 서비스 계정을 관리합니다. 스테이징·운영에는 외부·내부 로드 밸런서, 사설 DNS, 인스턴스 템플릿, MIG, Cloud Tasks 큐, 앱 env 시크릿과 읽기 권한도 포함됩니다.
 
-VM의 `bootstrap.sh`는 Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비합니다. 앱·Redis·모니터링 서비스와 Compose 파일, DB 사용자·비밀번호, 추가 IAM 권한은 직접 구성합니다. 기존 서비스 계정과 일부 기본 권한의 정의는 현재 코드에 포함되어 있습니다.
+개발 환경은 기존 SSH 배포 방식을 사용합니다. 스테이징·운영의 앱 `bootstrap.sh`는 Docker 등 기본 도구를 설치하고, 매 부팅마다 템플릿의 이미지와 Secret Manager의 env로 앱을 실행합니다. Redis·모니터링은 기존 기반 설치 스크립트를 유지하며 서비스와 Compose 파일은 직접 구성합니다. DB 사용자·비밀번호, 시크릿 값, CD 인증 권한은 직접 준비합니다.
 
-앱 MIG의 템플릿은 VM 생성 설정이며, VM 안에서 직접 작성한 파일을 저장하지 않습니다. 교체 시 앱 설정을 어떻게 복구할지는 [공통 MIG 설명](environments/README.md#앱-mig의-동작)을 참고하세요.
+앱 MIG의 템플릿은 VM 생성 설정이며, VM 안에서 직접 작성한 파일을 저장하지 않습니다. 앱 자동 복구·내부 주소·RATE 설정은 [공통 MIG 설명](environments/README.md#앱-mig의-동작), 실제 최초 적용 순서는 [앱 부팅 전환 안내](environments/BOOTSTRAP.md)를 참고하세요.
 
 `tfplan*`·`*.tfplan`은 일회성 실행 계획이고 `.DS_Store`는 macOS 임시 파일이므로 커밋에서 제외합니다. `terraform.tfstate`는 실제 리소스를 추적하는 상태 파일이므로 삭제하지 않습니다. `.terraform.lock.hcl`은 공급자 버전을 고정하는 파일로 커밋에 포함합니다.
 

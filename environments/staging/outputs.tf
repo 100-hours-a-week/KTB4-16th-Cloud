@@ -1,3 +1,23 @@
+output "backend_internal_url" {
+  value = module.mulo.backend_internal_url
+}
+
+output "ai_base_url" {
+  value = module.mulo.ai_base_url
+}
+
+output "internal_load_balancer_ips" {
+  value = module.mulo.internal_load_balancer_ips
+}
+
+output "app_env_secret_names" {
+  value = module.mulo.app_env_secret_names
+}
+
+output "mig_instance_template_urls" {
+  value = module.mulo.mig_instance_template_urls
+}
+
 output "load_balancer_ip" {
   value = module.mulo.load_balancer_ip
 }

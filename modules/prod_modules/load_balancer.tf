@@ -24,9 +24,12 @@ resource "google_compute_backend_service" "service" {
   health_checks = [google_compute_health_check.service[each.key].id]
 
   backend {
-    group           = google_compute_instance_group_manager.service[each.key].instance_group
-    balancing_mode  = "UTILIZATION"
-    capacity_scaler = 1.0
+    group = google_compute_instance_group_manager.service[each.key].instance_group
+    # URL 맵의 경로 분기는 유지합니다. RATE는 서비스 그룹의 목표 용량입니다.
+    # 내부 TCP LB(CONNECTION)와 같은 MIG를 공유하도록 backend·AI만 RATE를 사용합니다.
+    balancing_mode        = contains(["backend", "ai"], each.key) ? "RATE" : "UTILIZATION"
+    max_rate_per_instance = contains(["backend", "ai"], each.key) ? var.service_max_rate_per_instance[each.key] : null
+    capacity_scaler       = 1.0
   }
 
   # 운영 요청 로그를 모두 기록합니다.

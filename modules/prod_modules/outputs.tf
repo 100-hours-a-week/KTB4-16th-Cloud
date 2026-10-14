@@ -1,3 +1,25 @@
+# 앱 env에 넣을 고정 주소입니다. VM 교체 후에도 DNS와 LB 주소는 유지됩니다.
+output "backend_internal_url" {
+  value = "http://${trimsuffix(google_dns_record_set.service_internal["backend"].name, ".")}:${var.service_ports.backend}"
+}
+
+output "ai_base_url" {
+  value = "http://${trimsuffix(google_dns_record_set.service_internal["ai"].name, ".")}:${var.service_ports.ai}"
+}
+
+output "internal_load_balancer_ips" {
+  value = { for service, address in google_compute_address.service_internal : service => address.address }
+}
+
+output "app_env_secret_names" {
+  value = { for service, secret in google_secret_manager_secret.app_env : service => secret.secret_id }
+}
+
+output "mig_instance_template_urls" {
+  description = "현재 MIG가 참조하는 템플릿입니다. CD 배포 뒤에는 refresh를 포함한 plan/apply로 출력을 갱신합니다."
+  value       = { for service, mig in google_compute_instance_group_manager.service : service => mig.version[0].instance_template }
+}
+
 output "load_balancer_ip" {
   value = google_compute_global_address.site.address
 }
@@ -12,7 +34,8 @@ output "mig_names" {
 }
 
 output "instance_template_names" {
-  value = { for key, template in google_compute_instance_template.service : key => template.name }
+  description = "Terraform의 기반 템플릿입니다. CD 이후 현재 연결은 mig_instance_template_urls로 확인합니다."
+  value       = { for key, template in google_compute_instance_template.service : key => template.name }
 }
 
 output "monitoring_vm_name" {
