@@ -39,7 +39,7 @@ Cloud Tasks는 `mulo-v2-staging-ai-task` 큐와 OIDC용 계정을 생성합니�
 
 ## VM 관리
 
-[bootstrap.sh](bootstrap.sh)가 Docker·Compose 등 기본 실행 환경을 준비합니다. 앱·Redis·모니터링 스택은 직접 배포하며, MIG의 새 VM에도 앱 설정이 필요합니다. 롤링 교체 방식은 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
+[bootstrap.sh](bootstrap.sh)가 최초 부팅 시 Docker·Compose 등 기본 실행 환경을 준비하고, 설정 완료 후 재부팅에서는 설치를 건너뜁니다. 앱·Redis·모니터링 스택은 직접 배포하며, MIG의 새 VM에는 Compose와 앱 설정을 다시 준비해야 합니다. 교체·헬스체크 동작은 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
 
 앱 VM의 전원은 [mig-power.sh](mig-power.sh), 독립 모니터링·Redis VM과 Cloud SQL의 실행 상태는 `runtime_enabled`가 담당합니다.
 
@@ -59,7 +59,9 @@ cd environments/staging
 
 대상은 frontend·backend·chat 각 1대와 AI 2대입니다. VM과 디스크를 유지한 채 전원을 변경하며, 모니터링·Redis·Cloud SQL은 이 명령의 대상이 아닙니다.
 
-중지는 LB 연결 드레이닝과 VM 종료 때문에 시간이 걸릴 수 있습니다. 대기 중에는 30초마다 진행 상황을 표시합니다. `start` 완료는 VM이 켜졌다는 뜻이며 앱의 헬스체크 상태는 별도로 확인합니다.
+실행 중인 앱 VM이 0대여도 중지된 VM은 MIG에 남아 있습니다. `resize --size=0`은 VM과 앱 디스크를 삭제하므로 전원 중지 명령으로 사용하지 않습니다.
+
+중지는 LB 연결 드레이닝과 VM 종료 때문에 시간이 걸릴 수 있습니다. 대기 중에는 상태가 바뀌거나 30초가 지날 때 진행 상황을 표시합니다. `start` 완료는 VM이 켜졌다는 뜻이며 앱의 헬스체크 상태는 별도로 확인합니다.
 
 ### 스테이징 전체 중지와 시작
 

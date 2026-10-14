@@ -1,5 +1,5 @@
-# 기존 운영 DB를 import한 뒤 v2 VPC의 사설 IP를 추가합니다.
-# 공인 IP는 유지해 기존 VM의 접속 경로를 남깁니다.
+# imports.tf로 등록한 기존 운영 DB를 관리하며, 운영 VPC의 사설 IP와 기존 공인 접속 경로를 함께 유지합니다.
+# 기존 DB의 버전·티어는 이 파일에 고정되어 있고, 루트의 sql_tier/mysql_version은 새 chat DB에만 적용됩니다.
 resource "google_sql_database_instance" "backend_existing" {
   name                = var.existing_backend_mysql_instance_name
   project             = var.project_id
@@ -56,6 +56,7 @@ resource "google_sql_database_instance" "backend_existing" {
   }
 
   lifecycle {
+    # 운영 DB의 삭제·교체를 차단하고, 자동 증가한 용량과 별도로 관리하는 접속 허용 주소는 유지합니다.
     prevent_destroy = true
     ignore_changes = [
       settings[0].disk_size,
@@ -122,6 +123,7 @@ resource "google_sql_database_instance" "ai_existing" {
   }
 
   lifecycle {
+    # 운영 DB의 삭제·교체를 차단하고, 자동 증가한 용량과 별도로 관리하는 접속 허용 주소는 유지합니다.
     prevent_destroy = true
     ignore_changes = [
       settings[0].disk_size,
@@ -132,7 +134,7 @@ resource "google_sql_database_instance" "ai_existing" {
   depends_on = [google_service_networking_connection.sql]
 }
 
-# 사설 IP 추가가 끝난 뒤 실제 할당된 주소를 다시 조회합니다.
+# 사설 연결 적용이 끝난 뒤 주소를 조회해 출력값과 앱 연결 정보에 사용합니다.
 data "google_sql_database_instance" "backend_private" {
   name       = var.existing_backend_mysql_instance_name
   project    = var.project_id
@@ -145,7 +147,7 @@ data "google_sql_database_instance" "ai_private" {
   depends_on = [google_sql_database_instance.ai_existing]
 }
 
-# 아직 없는 채팅 DB만 운영 VPC의 Private Services Access에 새로 생성합니다.
+# chat은 운영 VPC의 Private Services Access를 사용하는 신규 DB입니다. 사용자와 비밀번호는 직접 구성합니다.
 resource "google_sql_database_instance" "chat" {
   name                = "${var.name_prefix}-mysql-chat"
   region              = var.region

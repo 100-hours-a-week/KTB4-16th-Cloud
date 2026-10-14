@@ -7,7 +7,7 @@ output "site_url" {
 }
 
 output "mig_names" {
-  description = "앱 서비스별 MIG 이름. 앱 VM 이름과 IP는 롤링 교체 시 바뀝니다."
+  description = "앱 서비스별 MIG 이름이고, 앱 VM 이름과 IP는 롤링 교체 시 바뀝니다."
   value       = { for key, mig in google_compute_instance_group_manager.service : key => mig.name }
 }
 
@@ -74,6 +74,7 @@ output "task_invoker_service_account" {
   value = var.enable_cloud_tasks ? google_service_account.task_invoker[0].email : null
 }
 
+# 라우팅 패턴을 보여주는 출력입니다. 실제 작업에는 * 대신 앱의 구체적인 처리 경로를 사용합니다.
 output "ai_task_target_url" {
   value = var.enable_cloud_tasks ? "https://${var.domain}/internal/tasks/*" : null
 }

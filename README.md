@@ -26,12 +26,16 @@ modules/
 enable-pgvector.sql  AI DB의 vector 확장 SQL
 ```
 
-각 `environments/<환경>/main.tf`가 같은 환경의 `modules/<환경>_modules`를 호출합니다. 환경별 입력값과 Terraform 상태는 `environments`의 각 폴더에서 관리합니다.
+각 `environments/<환경>/main.tf`가 같은 환경의 `modules/<환경>_modules`를 호출합니다. Terraform 명령은 해당 환경 폴더에서 실행하고, 실제 입력값은 그 폴더의 `terraform.tfvars`에 둡니다.
 
 ## 관리 범위
 
 Terraform은 VM·네트워크·방화벽·Cloud SQL·이미지 버킷과 서비스 계정을 관리합니다. 스테이징·운영에는 로드 밸런서, 인스턴스 템플릿, MIG, Cloud Tasks 큐도 포함됩니다.
 
-VM의 `bootstrap.sh`는 Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비합니다. 앱·Redis·모니터링 서비스의 설치와 Compose 파일, DB 사용자와 앱 연결 정보는 직접 구성합니다.
+VM의 `bootstrap.sh`는 Docker·Compose, Google Cloud CLI, Ops Agent와 2GB 스왑을 준비합니다. 앱·Redis·모니터링 서비스와 Compose 파일, DB 사용자·비밀번호, 추가 IAM 권한은 직접 구성합니다. 기존 서비스 계정과 일부 기본 권한의 정의는 현재 코드에 포함되어 있습니다.
+
+앱 MIG의 템플릿은 VM 생성 설정이며, VM 안에서 직접 작성한 파일을 저장하지 않습니다. 교체 시 앱 설정을 어떻게 복구할지는 [공통 MIG 설명](environments/README.md#앱-mig의-동작)을 참고하세요.
+
+`tfplan*`·`*.tfplan`은 일회성 실행 계획이고 `.DS_Store`는 macOS 임시 파일이므로 커밋에서 제외합니다. `terraform.tfstate`는 실제 리소스를 추적하는 상태 파일이므로 삭제하지 않습니다. `.terraform.lock.hcl`은 공급자 버전을 고정하는 파일로 커밋에 포함합니다.
 
 환경 비교와 서비스 간 연결은 [공통 구성](environments/README.md), 각 환경의 VM·DB 사양은 위 환경별 문서에서 확인할 수 있습니다. 요구 버전은 Terraform **1.6 이상**, Google provider **7.x**입니다.

@@ -1,3 +1,4 @@
+# 개발 VM 한 대와 개발 전용 DB·버킷을 이 폴더의 상태로 관리합니다.
 module "mulo" {
   source = "../../modules/dev_modules"
 

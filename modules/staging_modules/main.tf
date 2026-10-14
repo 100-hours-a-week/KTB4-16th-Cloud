@@ -1,3 +1,4 @@
+# 같은 서비스 키로 템플릿·MIG·헬스체크·LB를 연결합니다.
 locals {
   services = {
     frontend = { port = var.service_ports.frontend, health_path = var.health_paths.frontend }
@@ -15,9 +16,9 @@ locals {
   ], var.enable_cloud_tasks ? ["cloudtasks.googleapis.com"] : []))
 }
 
+# 프로젝트 API는 환경 간에 공유하므로 Terraform 리소스를 제거해도 비활성화하지 않습니다.
 resource "google_project_service" "required" {
   for_each           = local.required_apis
   service            = each.key
   disable_on_destroy = false
-  // Terraform이 이 API 활성화 리소스를 제거하더라도, GCP API는 비활성화 하지 않는다
 }

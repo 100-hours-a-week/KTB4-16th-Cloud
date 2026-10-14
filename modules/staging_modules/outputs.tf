@@ -67,6 +67,7 @@ output "task_invoker_service_account" {
   value = var.enable_cloud_tasks ? google_service_account.task_invoker[0].email : null
 }
 
+# 라우팅 패턴을 보여주는 출력입니다. 실제 작업에는 * 대신 앱의 구체적인 처리 경로를 사용합니다.
 output "ai_task_target_url" {
   value = var.enable_cloud_tasks ? "https://${var.domain}/internal/tasks/*" : null
 }

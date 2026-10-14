@@ -34,6 +34,7 @@ resource "google_project_iam_member" "vm_runtime" {
   depends_on = [google_project_service.required]
 }
 
+# runtime_enabled는 전원만 제어합니다. 부팅 디스크를 교체하면 수동 앱 설정은 다시 준비해야 합니다.
 resource "google_compute_instance" "vm" {
   name                      = "${var.name_prefix}-vm"
   zone                      = var.zone

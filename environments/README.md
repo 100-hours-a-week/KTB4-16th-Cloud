@@ -43,7 +43,7 @@ HTTP 요청은 HTTPS로 리다이렉트되고, HTTPS 요청은 아래 경로에 
 
 backend는 MySQL과 이미지 버킷, AI는 PostgreSQL, chat은 chat MySQL에 연결하는 구성입니다. 이미지 요청은 backend가 사용자 권한을 확인한 뒤 버킷의 객체를 읽거나 쓰도록 앱에서 구현합니다.
 
-비동기 AI 작업은 **backend → Cloud Tasks → HTTPS LB → AI** 흐름입니다. Terraform은 큐와 OIDC용 서비스 계정을 만들고, backend 앱은 실제 처리 URL과 OIDC 설정을 넣어 작업을 등록합니다. AI 앱은 토큰을 검증합니다. `ai_task_target_url` 출력의 `/internal/tasks/*`는 경로 패턴이므로 실제 작업에는 앱의 구체적인 처리 URL을 사용합니다.
+비동기 AI 작업은 **backend → Cloud Tasks → HTTPS LB → AI** 흐름입니다. Terraform은 큐와 OIDC용 서비스 계정을 만들고, backend 앱은 실제 처리 URL과 OIDC 설정을 넣어 작업을 등록합니다. AI 앱은 토큰을 검증합니다. `ai_task_target_url`의 `/internal/tasks/*`는 라우팅 패턴이므로 작업 등록 시 구체적인 처리 URL을 사용합니다.
 
 | 허용된 연결 | 포트 | 용도 |
 | --- | --- | --- |
@@ -55,18 +55,30 @@ backend는 MySQL과 이미지 버킷, AI는 PostgreSQL, chat은 chat MySQL에 �
 
 스테이징·운영 VM에는 공인 IP가 없고 외부 이미지 다운로드·API 호출은 Cloud NAT를 거칩니다. 모니터링과 Redis는 LB에 연결하지 않습니다. 위 방화벽은 통신 경로를 열어 주며, Redis·Prometheus·Loki·Node Exporter 실행과 설정은 직접 구성합니다.
 
+Prometheus는 앱 IP를 고정해서 적는 대신 [GCE 자동 탐색](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#gce_sd_config)으로 현재 내부 IP를 찾을 수 있습니다. VM 라벨의 `environment`는 staging 또는 prod, `service`는 frontend·backend·ai·chat입니다. 모니터링 계정의 VM 조회 권한은 직접 부여합니다.
+
 ## 앱 MIG의 동작
 
-Terraform이 서비스별 인스턴스 템플릿을 만들고 MIG에 연결합니다. 템플릿 변경 시 새 VM을 먼저 1대 만들고, 헬스체크를 통과하면 기존 VM을 교체하는 롤링 정책을 사용합니다.
+Terraform은 서비스별 인스턴스 템플릿을 만들고 MIG에 연결합니다. 템플릿은 머신 사양·부팅 이미지·시작 스크립트를 정의하며, 실행 중인 VM의 파일을 자동으로 저장하지 않습니다.
 
-앱 VM은 교체 시 이름과 내부 IP가 바뀔 수 있습니다. 이전 VM에 직접 작성한 Compose 파일과 앱 설정은 새 VM에 자동으로 복사되지 않습니다. `service_container_images`도 이미지 주소를 VM 메타데이터에 기록할 뿐 앱을 실행하지는 않습니다.
+| 상황 | 현재 동작 |
+| --- | --- |
+| 템플릿 변경 | 새 VM을 먼저 1대 만들고 헬스체크를 통과하면 기존 VM을 교체 |
+| 앱 HTTP 헬스체크 실패 | MIG의 HTTP 실패 재생성은 꺼져 있음(`DO_NOTHING`). LB 상태 판정은 별도로 수행 |
+| VM 자체 장애 | MIG가 VM을 재생성할 수 있음 |
 
-앱의 HTTP 헬스체크 실패만으로 VM을 자동 재생성하지 않도록 설정되어 있습니다. VM 자체 장애로는 재생성될 수 있습니다. 모니터링·Redis VM의 부팅 디스크는 VM 삭제 후에도 남도록 설정되어 있습니다.
+앱 VM 교체 시 이름과 내부 IP가 바뀔 수 있고, 기존 부팅 디스크는 삭제됩니다. 새 VM에는 기본 실행 환경만 준비되므로 직접 작성한 Compose·환경변수·앱 설정을 다시 배포해야 합니다. `service_container_images`도 Docker 이미지 주소를 메타데이터에 기록할 뿐 앱을 실행하지 않습니다. `bootstrap.sh` 내용 변경도 템플릿 변경과 롤링 교체를 유발할 수 있습니다.
+
+재생성 후 앱까지 자동 복구하려면 설정을 포함한 GCE 커스텀 이미지 또는 부팅 시 앱 배포 구성이 필요합니다. GCE 부팅 이미지는 Artifact Registry의 Docker 이미지와 별개입니다.
+
+모니터링·Redis는 독립 VM입니다. VM 삭제 시 부팅 디스크는 남지만 새 VM에 자동으로 연결되지는 않습니다. 디스크 크기를 줄이려면 기존 디스크를 축소하는 대신 새 디스크로 교체해야 합니다.
 
 ## 입력값·권한·상태
 
 각 환경의 `variables.tf`는 입력 항목과 기본값, `main.tf`는 모듈에 전달하는 값, `outputs.tf`는 주소와 리소스 이름을 정의합니다. 실제 환경 값은 `terraform.tfvars`에 둡니다. 아래 환경별 문서의 사양은 코드 기본값 기준입니다.
 
-backend의 버킷 객체 관리 권한과 모니터링 계정의 로그·지표 전송 권한은 Terraform이 부여합니다. 스테이징·운영 앱의 Artifact Registry 이미지 읽기 권한, backend의 큐 작업 등록 권한, backend·Cloud Tasks 서비스 에이전트의 OIDC 계정 사용 권한은 별도로 부여합니다. DB 사용자·비밀번호와 AI DB의 vector 확장도 직접 준비합니다.
+현재 코드에는 서비스 계정 생성, backend의 버킷 객체 관리 권한, 모니터링 계정의 로그·지표 전송 권한이 포함되어 있습니다. 스테이징·운영의 Artifact Registry 이미지 읽기, Cloud Tasks 작업 등록·OIDC 계정 사용, Prometheus의 VM 조회 권한은 콘솔에서 직접 설정합니다.
+
+DB 사용자·비밀번호는 직접 준비합니다. [enable-pgvector.sql](../enable-pgvector.sql)은 AI가 사용하는 DB에 접속한 뒤 실행하며, 개발 DB 이름은 `muro_ai`, 스테이징은 `mulo_ai`, 운영은 기존 AI DB 이름을 사용합니다.
 
 Terraform 상태는 환경별로 따로 관리하며, 현재 원격 상태 저장소 선언은 없습니다. 상세 리소스는 [스테이징 모듈](../modules/staging_modules)과 [운영 모듈](../modules/prod_modules)에서 확인할 수 있습니다.

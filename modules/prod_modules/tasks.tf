@@ -1,3 +1,4 @@
+# 큐는 전달 속도와 재시도를 제어합니다. 실제 HTTP 작업 등록은 backend 앱이 담당합니다.
 resource "google_cloud_tasks_queue" "ai" {
   count    = var.enable_cloud_tasks ? 1 : 0
   name     = "${var.name_prefix}-ai-task"
@@ -17,7 +18,7 @@ resource "google_cloud_tasks_queue" "ai" {
   depends_on = [google_project_service.required]
 }
 
-# API가 HTTP Task를 생성할 때 이 계정으로 OIDC 토큰을 붙이도록 합니다.
+# HTTP 작업의 OIDC 토큰에 사용할 신원입니다. 이 계정을 만드는 것만으로 작업 권한이 부여되지는 않습니다.
 resource "google_service_account" "task_invoker" {
   count        = var.enable_cloud_tasks ? 1 : 0
   account_id   = "${var.name_prefix}-task-invoker"
@@ -25,4 +26,4 @@ resource "google_service_account" "task_invoker" {
   depends_on   = [google_project_service.required]
 }
 
-# Cloud Tasks Enqueuer와 task-invoker 서비스 계정 사용 권한은 수동으로 부여합니다.
+# 작업 등록·서비스 계정 사용 권한과 AI 앱의 토큰 검증은 직접 구성합니다.

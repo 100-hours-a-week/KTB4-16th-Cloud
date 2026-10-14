@@ -70,6 +70,8 @@ variable "monitoring_vm_boot_disk_size_gb" {
   default     = 50
 }
 
+# GCE 부팅 디스크의 원본 이미지입니다. Artifact Registry의 Docker 이미지 주소와 구분합니다.
+# 이 입력값은 앱 템플릿뿐 아니라 모니터링·Redis VM에도 적용됩니다.
 variable "vm_image" {
   type    = string
   default = "ubuntu-os-cloud/ubuntu-2204-lts"

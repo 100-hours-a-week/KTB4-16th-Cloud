@@ -1,3 +1,4 @@
+# 개발 루트 모듈이 VM·디스크 사양을 전달하므로 이 파일의 기본값과 실제 배치 사양을 구분합니다.
 variable "project_id" {
   type = string
 }

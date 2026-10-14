@@ -1,3 +1,4 @@
+# 스테이징 리소스와 상태는 운영 환경과 별도로 관리합니다.
 module "mulo" {
   source = "../../modules/staging_modules"
 
@@ -10,7 +11,8 @@ module "mulo" {
   subnet_cidr       = var.subnet_cidr
   service_ports     = var.service_ports
   health_paths      = var.health_paths
-  bootstrap_script  = file("${path.module}/bootstrap.sh")
+  # 스크립트 내용 변경도 앱 템플릿 변경과 롤링 교체를 유발할 수 있습니다.
+  bootstrap_script = file("${path.module}/bootstrap.sh")
 
   service_container_images      = var.service_container_images
   service_vm_boot_disk_sizes_gb = var.service_vm_boot_disk_sizes_gb

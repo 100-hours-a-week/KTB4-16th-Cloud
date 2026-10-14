@@ -96,6 +96,8 @@ variable "monitoring_vm_boot_disk_size_gb" {
   default     = 30
 }
 
+# tfvars에서 이 맵을 지정하면 기본 맵 전체를 덮어씁니다. 누락한 서비스는 30GB를 사용합니다.
+# 기존 디스크는 축소할 수 없으므로 크기를 줄이면 MIG가 새 VM과 디스크로 교체합니다.
 variable "service_vm_boot_disk_sizes_gb" {
   description = "서비스별 앱 VM 부팅 디스크 크기(GB). 지정하지 않은 서비스는 30GB입니다."
   type        = map(number)

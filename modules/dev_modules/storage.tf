@@ -1,3 +1,4 @@
+# 비공개 이미지 버킷입니다. 객체가 남아 있으면 Terraform에서 버킷을 삭제할 수 없습니다.
 resource "google_storage_bucket" "images" {
   name                        = var.image_bucket_name
   location                    = var.region

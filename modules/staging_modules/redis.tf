@@ -4,6 +4,7 @@ resource "google_service_account" "redis" {
   depends_on   = [google_project_service.required]
 }
 
+# 독립 VM을 다시 만들어도 Redis 접속 주소를 유지하도록 내부 IP를 예약합니다.
 resource "google_compute_address" "redis_internal" {
   name         = "${var.name_prefix}-redis-ip"
   region       = var.region

@@ -1,3 +1,4 @@
+# 환경의 실제 기본값은 environments/staging/main.tf와 variables.tf에서 전달됩니다.
 variable "project_id" {
   description = "이미 생성된 GCP 프로젝트 ID"
   type        = string

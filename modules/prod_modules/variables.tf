@@ -1,3 +1,4 @@
+# 환경의 실제 기본값은 environments/prod/main.tf와 variables.tf에서 전달됩니다.
 variable "project_id" {
   description = "이미 생성된 GCP 프로젝트 ID"
   type        = string
@@ -94,7 +95,7 @@ variable "use_default_vpc" {
 }
 
 variable "enable_cloud_tasks" {
-  description = "Cloud Tasks 큐와 관련 IAM/서비스 계정을 생성합니다."
+  description = "Cloud Tasks 큐와 관련 IAM/서비스 계정을 생성."
   type        = bool
   default     = true
 }

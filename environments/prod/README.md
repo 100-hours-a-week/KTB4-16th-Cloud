@@ -40,7 +40,9 @@
 
 ## 앱과 공용 서비스
 
-[bootstrap.sh](bootstrap.sh)가 Docker·Compose 등 기본 실행 환경을 준비하고, 앱·Redis·모니터링 스택은 직접 배포합니다. `service_container_images`는 VM 메타데이터의 이미지 주소이며 Compose 실행은 포함하지 않습니다. 롤링 교체 방식은 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
+[bootstrap.sh](bootstrap.sh)가 최초 부팅 시 Docker·Compose 등 기본 실행 환경을 준비하고, 설정 완료 후 재부팅에서는 설치를 건너뜁니다. 앱·Redis·모니터링 스택은 직접 배포하며, MIG 교체 시 Compose와 앱 설정은 새 VM에 자동 복사되지 않습니다. 교체·헬스체크 동작은 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
+
+`vm_image`는 앱·Redis·모니터링에 공통으로 적용되는 GCE 부팅 이미지입니다. `service_container_images`는 서비스별 Docker 이미지 주소를 VM 메타데이터에 기록하는 값이며, Compose 실행은 포함하지 않습니다.
 
 Cloud Tasks 큐는 기본 `mulo-v2-ai-task`입니다. Redis·모니터링의 내부 통신과 앱 권한 범위는 [공통 구성](../README.md)에 정리되어 있습니다.
 

@@ -5,7 +5,8 @@ resource "google_service_account" "vm" {
   depends_on   = [google_project_service.required]
 }
 
-# 앱 VM은 교체할 때 새 내부 IP를 받습니다. 접속은 LB와 서비스 주소를 사용합니다.
+# 템플릿은 VM 생성 설정입니다. 실행 중인 VM의 Compose 파일이나 디스크 변경은 저장하지 않습니다.
+# 앱 VM의 내부 IP는 자동 할당되며, 교체 후에는 서비스 탐색이나 LB를 통해 접근합니다.
 resource "google_compute_instance_template" "service" {
   for_each     = local.services
   name_prefix  = "${var.name_prefix}-${each.key}-"
@@ -13,6 +14,7 @@ resource "google_compute_instance_template" "service" {
   region       = var.region
   tags         = ["${var.name_prefix}-app"]
   labels       = { service = each.key, environment = "staging" }
+  # app-image는 배포 시 참고할 주소이며, 이미지를 내려받거나 앱을 실행하지 않습니다.
   metadata = merge(
     {
       enable-oslogin = "TRUE"
@@ -26,6 +28,7 @@ resource "google_compute_instance_template" "service" {
   disk {
     source_image = var.vm_image
     boot         = true
+    # 교체 시 새 디스크를 만듭니다. 앱 설정을 복구하려면 이미지나 별도 배포 구성이 필요합니다.
     auto_delete  = true
     disk_size_gb = lookup(var.service_vm_boot_disk_sizes_gb, each.key, var.vm_boot_disk_size_gb)
     disk_type    = "pd-balanced"
@@ -41,6 +44,7 @@ resource "google_compute_instance_template" "service" {
   }
 
   lifecycle {
+    # 새 템플릿을 먼저 만들어 MIG가 참조 중인 템플릿을 바로 삭제하지 않습니다.
     create_before_destroy = true
   }
 }
@@ -65,9 +69,11 @@ resource "google_compute_instance_group_manager" "service" {
   }
   instance_lifecycle_policy {
     # 앱은 수동 설치하므로 HTTP 실패로 VM을 자동 재생성하지 않습니다.
-    # 롤링 업데이트에서는 상태 검사가 정상인 새 VM을 기다립니다.
+    # VM 자체 장애 복구와 롤링 업데이트의 헬스체크는 별도로 동작합니다.
     on_failed_health_check = "DO_NOTHING"
   }
+  # 새 VM 한 대가 정상 상태가 된 뒤 기존 VM을 교체합니다.
+  # 새 VM에 앱을 배포하지 않으면 헬스체크 확인 단계에서 업데이트가 대기할 수 있습니다.
   update_policy {
     type                  = "PROACTIVE"
     minimal_action        = "REPLACE"
@@ -106,7 +112,7 @@ resource "google_compute_address" "monitoring_internal" {
   subnetwork   = local.subnetwork_id
 }
 
-# 모니터링 전용 독립 VM입니다.
+# 모니터링은 MIG 교체 대상에서 제외하고 예약된 내부 IP로 접근합니다.
 resource "google_compute_instance" "monitoring" {
   name                      = "${var.name_prefix}-monitoring"
   zone                      = var.zone
@@ -121,6 +127,7 @@ resource "google_compute_instance" "monitoring" {
   }
 
   boot_disk {
+    # VM 삭제 후 디스크는 남지만, 새 VM에 자동으로 다시 연결되지는 않습니다.
     auto_delete = false
     device_name = "monitoring-boot"
     initialize_params {

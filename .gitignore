@@ -1,12 +1,31 @@
+# Terraform 실행 캐시와 로컬 상태
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# 검토 후 다시 생성하는 실행 계획
 *.tfplan
-tfplan
+tfplan*
+
+# 환경별 입력값과 컨테이너 환경변수
 *.tfvars
 !terraform.tfvars.example
+.env
+.env.*
+*.env
+
+# 로컬 진단 파일과 설정 덮어쓰기
 crash.log
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# 운영체제와 편집기의 임시 파일
+.DS_Store
+._*
+*.swp
+*.swo
+*.tmp
+*.temp
+*~

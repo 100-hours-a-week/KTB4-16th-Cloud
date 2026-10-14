@@ -34,6 +34,8 @@ Cloud SQL은 공인 IP를 사용합니다. 접속 허용 주소는 개발 VM의 
 
 별도 로드 밸런서·MIG·Cloud Tasks·Redis VM·모니터링 VM을 생성하지 않습니다. 공통 초기 설정은 [bootstrap.sh](bootstrap.sh)가 담당합니다.
 
+시작 스크립트는 최초 설정 완료 표식을 확인해 재부팅 시 설치를 건너뜁니다. 앱 Compose와 환경변수는 직접 구성하며, 일반적인 중지·시작에서는 디스크가 유지됩니다. VM과 부팅 디스크를 교체하면 앱 설정을 다시 준비해야 합니다.
+
 개발 DB는 자동 백업·MySQL binlog·PostgreSQL PITR·디스크 자동 확장이 꺼져 있습니다. `runtime_enabled`는 개발 VM과 Cloud SQL의 실행 상태를 제어합니다.
 
 ## 주요 출력값

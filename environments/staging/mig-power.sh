@@ -20,6 +20,7 @@ def list_instances(base, group, scope):
     return json.loads(run(base + ["list-instances", group, "--format=json"] + scope, True).stdout)
 
 def wait_for_power(base, group, scope, names, action, deadline):
+    # 전원 상태만 기다립니다. 수동 앱 설치로 남는 VERIFYING 상태는 시작 완료로 취급합니다.
     previous = None
     next_report = 0
     while True:
@@ -49,6 +50,7 @@ def wait_for_power(base, group, scope, names, action, deadline):
         time.sleep(5)
 
 try:
+    # 현재 Terraform 상태의 출력값을 사용해 다른 환경이나 독립 VM을 대상으로 삼지 않습니다.
     config = json.loads(run(["terraform", f"-chdir={directory}", "output", "-json", "mig_control"], True).stdout)
     scope = [f"--project={config['project_id']}", f"--zone={config['zone']}"]
     groups = config["mig_names"]
@@ -86,6 +88,7 @@ try:
         if action == "stop":
             print("중지 요청 전송 완료. LB 연결 드레이닝 설정에 따라 실제 중지까지 몇 분 걸릴 수 있습니다.", flush=True)
         deadline = time.monotonic() + 600
+        # 대기 제한은 그룹마다 초기화하지 않고 전체 그룹이 같은 종료 시각을 공유합니다.
         for group, targets in pending_groups:
             wait_for_power(base, group, scope, targets, action, deadline)
 except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, KeyError) as exc:
