@@ -86,11 +86,12 @@ resource "google_compute_instance_group_manager" "service" {
   # 새 VM 한 대가 정상 상태가 된 뒤 기존 VM을 교체합니다.
   # 새 VM의 부팅·env·이미지 실행이 실패하면 기존 정상 VM을 유지하고 업데이트가 대기합니다.
   update_policy {
-    type                  = "PROACTIVE"
-    minimal_action        = "REPLACE"
-    replacement_method    = "SUBSTITUTE"
-    max_surge_fixed       = 1
-    max_unavailable_fixed = 0
+    type                           = "PROACTIVE"
+    minimal_action                 = "REPLACE"
+    most_disruptive_allowed_action = "REPLACE"
+    replacement_method             = "SUBSTITUTE"
+    max_surge_fixed                = 1
+    max_unavailable_fixed          = 0
   }
 
   # 새 부팅 템플릿을 처음 연결할 때만 version 무시를 잠시 해제합니다. BOOTSTRAP.md를 참고하세요.
