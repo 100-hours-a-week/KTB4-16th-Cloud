@@ -49,6 +49,22 @@ resource "google_compute_url_map" "https" {
     path_matcher = "mulo"
   }
 
+  dynamic "host_rule" {
+    for_each = local.monitoring_services
+    content {
+      hosts        = [host_rule.value.domain]
+      path_matcher = host_rule.key
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = local.monitoring_services
+    content {
+      name            = path_matcher.key
+      default_service = google_compute_backend_service.monitoring[path_matcher.key].id
+    }
+  }
+
   # 아래 경로에 해당하지 않는 요청은 frontend로 전달합니다.
   path_matcher {
     name            = "mulo"
@@ -87,9 +103,12 @@ resource "google_compute_managed_ssl_certificate" "site" {
 
 # TLS를 종료하고 URL 맵으로 서비스별 라우팅을 수행합니다.
 resource "google_compute_target_https_proxy" "site" {
-  name             = "${var.name_prefix}-https-proxy"
-  url_map          = google_compute_url_map.https.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.site.id]
+  name    = "${var.name_prefix}-https-proxy"
+  url_map = google_compute_url_map.https.id
+  ssl_certificates = concat(
+    [google_compute_managed_ssl_certificate.site.id],
+    [for certificate in google_compute_managed_ssl_certificate.monitoring : certificate.id]
+  )
 }
 
 # DNS에 등록할 외부 주소입니다. HTTP와 HTTPS가 같은 고정 IP를 사용합니다.

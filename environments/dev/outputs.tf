@@ -39,3 +39,15 @@ output "image_bucket_name" {
 output "vm_service_account" {
   value = module.mulo.vm_service_account
 }
+
+output "ai_tasks_queue_id" {
+  value = module.mulo.ai_tasks_queue_id
+}
+
+output "task_invoker_service_account" {
+  value = module.mulo.task_invoker_service_account
+}
+
+output "ai_task_target_url" {
+  value = module.mulo.ai_task_target_url
+}

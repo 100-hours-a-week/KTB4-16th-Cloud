@@ -32,6 +32,7 @@ module "mulo" {
   vm_boot_disk_size_gb            = 30
   monitoring_vm_machine_type      = var.monitoring_vm_machine_type
   monitoring_vm_boot_disk_size_gb = var.monitoring_vm_boot_disk_size_gb
+  monitoring_ports                = var.monitoring_ports
   sql_tier                        = "db-g1-small"
 
   sql_deletion_protection = var.sql_deletion_protection

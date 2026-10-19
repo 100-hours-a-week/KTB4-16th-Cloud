@@ -84,6 +84,25 @@ variable "runtime_enabled" {
   default     = true
 }
 
+variable "monitoring_ports" {
+  description = "모니터링 VM에서 Grafana·Prometheus가 수신하는 HTTP 포트"
+  type = object({
+    grafana    = number
+    prometheus = number
+  })
+  default = {
+    grafana    = 3000
+    prometheus = 9090
+  }
+
+  validation {
+    condition = alltrue([
+      for port in values(var.monitoring_ports) : port >= 1 && port <= 65535 && floor(port) == port
+    ]) && length(distinct(values(var.monitoring_ports))) == 2
+    error_message = "모니터링 포트는 서로 다른 1~65535의 정수여야 합니다."
+  }
+}
+
 variable "monitoring_vm_machine_type" {
   description = "스테이징 모니터링 VM의 머신 타입"
   type        = string
@@ -132,9 +151,9 @@ variable "service_image_tags" {
   description = "app-image-tag에 기록할 최초 태그. 이후 실제 배포 태그는 CD가 관리합니다."
   type        = map(string)
   default = {
-    ai       = "1.5.0"
-    backend  = "1.7.0"
-    frontend = "1.7.1"
+    ai       = "1.8.0"
+    backend  = "1.8.3"
+    frontend = "1.9.1"
   }
   validation {
     condition = alltrue([

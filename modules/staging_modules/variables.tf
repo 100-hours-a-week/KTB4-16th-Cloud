@@ -63,6 +63,25 @@ variable "service_vm_boot_disk_sizes_gb" {
   }
 }
 
+variable "monitoring_ports" {
+  description = "모니터링 VM에서 Grafana·Prometheus가 수신하는 HTTP 포트"
+  type = object({
+    grafana    = number
+    prometheus = number
+  })
+  default = {
+    grafana    = 3000
+    prometheus = 9090
+  }
+
+  validation {
+    condition = alltrue([
+      for port in values(var.monitoring_ports) : port >= 1 && port <= 65535 && floor(port) == port
+    ]) && length(distinct(values(var.monitoring_ports))) == 2
+    error_message = "모니터링 포트는 서로 다른 1~65535의 정수여야 합니다."
+  }
+}
+
 variable "monitoring_vm_machine_type" {
   description = "스테이징 모니터링 VM의 머신 타입"
   type        = string
