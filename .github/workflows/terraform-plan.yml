@@ -1,0 +1,128 @@
+name: Terraform Plan
+
+# PR에서 코드 형식과 문법을 검사하고, 환경별로 terraform plan을 돌려서 PR 댓글로 보여준다.
+# plan은 읽기 전용 서비스 계정으로 실행하므로 인프라를 바꾸지 않는다.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "environments/**"
+      - "modules/**"
+      - ".github/workflows/terraform-*.yml"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: tf-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: "1.16.4"
+
+jobs:
+  check:
+    name: fmt and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      # 백엔드와 인증 없이 문법만 검사한다. 개발(dev)은 CI/CD로 plan, apply를 하지 않지만 코드 문법 검사는 같이 한다.
+      - name: Validate each environment
+        run: |
+          for e in dev staging prod; do
+            echo "== $e"
+            terraform -chdir="environments/$e" init -backend=false -input=false
+            terraform -chdir="environments/$e" validate
+          done
+
+  plan:
+    name: plan (${{ matrix.env }})
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [staging, prod]
+    # 스테이징은 DB를 꺼 두면 Terraform이 조회하지 못해서 plan이 실패할 수 있다. 실패해도 PR을 막지 않는다.
+    continue-on-error: ${{ matrix.env == 'staging' }}
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.TF_WIF_PROVIDER }}
+          service_account: ${{ vars.TF_PLAN_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # 환경별 입력값(tfvars)은 비밀이 아닌 값만 GitHub 변수 TFVARS_<환경>에 둔다.
+      - name: Write tfvars
+        env:
+          TFVARS: ${{ vars[format('TFVARS_{0}', matrix.env)] }}
+        run: printf '%s\n' "$TFVARS" > terraform.tfvars
+
+      - name: Init
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: Plan
+        id: plan
+        run: |
+          set -o pipefail
+          terraform plan -input=false -lock-timeout=60s -no-color -out=tfplan 2>&1 | tee plan.txt
+
+      - name: Summarize changes
+        id: sum
+        if: steps.plan.outcome == 'success'
+        run: |
+          terraform show -json tfplan > plan.json
+          ADD=$(jq '[.resource_changes[]? | select(.change.actions==["create"])] | length' plan.json)
+          CHG=$(jq '[.resource_changes[]? | select(.change.actions==["update"])] | length' plan.json)
+          DEL=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' plan.json)
+          echo "text=추가 ${ADD}, 변경 ${CHG}, 삭제 또는 교체 ${DEL}" >> "$GITHUB_OUTPUT"
+          if [ "$DEL" -gt 0 ]; then
+            echo "warn=삭제 또는 교체가 포함되어 있습니다. 내용을 꼭 확인하세요." >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment on PR
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          ENV_NAME: ${{ matrix.env }}
+          SUMMARY: ${{ steps.sum.outputs.text }}
+          WARN: ${{ steps.sum.outputs.warn }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const env = process.env.ENV_NAME;
+            const file = `environments/${env}/plan.txt`;
+            let plan = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '(plan 출력 없음)';
+            const max = 60000;
+            if (plan.length > max) plan = plan.slice(0, max) + '\n... (너무 길어서 잘림)';
+            const status = process.env.PLAN_OUTCOME === 'success' ? process.env.SUMMARY : 'plan 실패';
+            const warn = process.env.WARN ? `\n> ${process.env.WARN}\n` : '';
+            const marker = `<!-- tf-plan-${env} -->`;
+            const body = `### Terraform plan: ${env}\n\n${status}\n${warn}\n<details><summary>plan 보기</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>\n\n${marker}`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
