@@ -38,6 +38,27 @@ output "instance_template_names" {
   value       = { for key, template in google_compute_instance_template.service : key => template.name }
 }
 
+output "monitoring_instance_group_name" {
+  description = "기존 모니터링 VM을 등록한 비관리형 인스턴스 그룹 이름"
+  value       = google_compute_instance_group.monitoring.name
+}
+
+output "monitoring_urls" {
+  description = "DNS 연결과 인증서 발급 완료 후 사용하는 모니터링 HTTPS 주소"
+  value       = { for service, config in local.monitoring_services : service => "https://${config.domain}" }
+}
+
+output "monitoring_dns_records" {
+  description = "외부 DNS에 수동 등록할 모니터링 A 레코드. 환경의 기존 LB IP를 사용합니다."
+  value = {
+    for service, config in local.monitoring_services : service => {
+      name    = config.domain
+      type    = "A"
+      rrdatas = [google_compute_global_address.site.address]
+    }
+  }
+}
+
 output "monitoring_vm_name" {
   value = google_compute_instance.monitoring.name
 }

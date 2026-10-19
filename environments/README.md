@@ -12,7 +12,7 @@
 | 앱 VM 주소 | 고정 공인·내부 IP | 내부 IP 자동 할당 | 내부 IP 자동 할당 |
 | DB 접속 | 공인 IP와 TLS | 사설 IP | 사설 IP, 기존 DB는 TLS 유지 |
 | 이미지 버킷 | 새 비공개 버킷 | 새 비공개 버킷 | 기존 버킷 사용 |
-| Cloud Tasks | 없음 | AI 작업 큐 | 별도 AI 작업 큐 |
+| Cloud Tasks | 개발 AI 작업 큐 | AI 작업 큐 | 별도 AI 작업 큐 |
 | LB 연결 드레이닝 | 해당 없음 | 60초 | 300초 |
 
 같은 GCP 프로젝트를 사용하더라도 스테이징과 운영은 VPC·VM·로드 밸런서·큐를 각각 구성합니다. 스테이징은 DB와 버킷도 별도로 생성합니다. 프로젝트의 API 활성화와 할당량은 공유됩니다.
@@ -98,4 +98,4 @@ Terraform은 VM 사양·부팅 이미지·스크립트·메타데이터를 담�
 
 DB 사용자·비밀번호는 직접 준비합니다. [enable-pgvector.sql](../enable-pgvector.sql)은 AI가 사용하는 DB에 접속한 뒤 실행하며, 개발 DB 이름은 `muro_ai`, 스테이징은 `mulo_ai`, 운영은 기존 AI DB 이름을 사용합니다.
 
-Terraform 상태는 환경별로 따로 관리하며, 현재 원격 상태 저장소 선언은 없습니다. 상세 리소스는 [스테이징 모듈](../modules/staging_modules)과 [운영 모듈](../modules/prod_modules)에서 확인할 수 있습니다.
+Terraform 상태는 각 환경의 `backend.tf`를 통해 GCS 버킷 `mulo-v2-tfstate-953840519216`의 `dev`·`staging`·`prod` 경로로 분리합니다. 버킷 준비와 기존 로컬 state 이전, 팀원 연결은 [팀 공유 state 안내](STATE.md)를 참고합니다. 상세 리소스는 [스테이징 모듈](../modules/staging_modules)과 [운영 모듈](../modules/prod_modules)에서 확인할 수 있습니다.

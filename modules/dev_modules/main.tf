@@ -2,6 +2,7 @@ locals {
   required_apis = toset([
     "artifactregistry.googleapis.com",
     "compute.googleapis.com",
+    "cloudtasks.googleapis.com",
     "iam.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",

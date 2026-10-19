@@ -50,7 +50,7 @@ resource "google_compute_instance_template" "service" {
   }
 
   lifecycle {
-    # 새 템플릿을 먼저 만들어 MIG가 참조 중인 템플릿을 바로 삭제하지 않습니다.
+    # 교체용 템플릿을 먼저 만듭니다. 기존 템플릿 삭제 전 MIG의 version도 갱신해야 합니다.
     create_before_destroy = true
     precondition {
       condition     = lookup(var.service_container_images, each.key, "") == "" || lookup(var.service_image_tags, each.key, "") != ""
@@ -80,24 +80,24 @@ resource "google_compute_instance_group_manager" "service" {
     initial_delay_sec = 600
   }
   instance_lifecycle_policy {
-    # 이미지가 없는 chat을 반복 재생성하지 않습니다. 준비된 앱은 HTTP 실패도 복구합니다.
-    on_failed_health_check = lookup(var.service_container_images, each.key, "") != "" ? "REPAIR" : "DO_NOTHING"
+    # MIG stop/start는 기본 장애 복구가 REPAIR여야 사용할 수 있습니다.
+    # 앱 헬스체크 실패에 따른 VM 재생성은 계속 끕니다.
+    default_action_on_failure = "REPAIR"
+    on_failed_health_check    = "DO_NOTHING"
   }
-  # 새 VM 한 대가 정상 상태가 된 뒤 기존 VM을 교체합니다.
-  # 새 VM의 부팅·env·이미지 실행이 실패하면 기존 정상 VM을 유지하고 업데이트가 대기합니다.
+  # 새 템플릿은 신규 VM 생성에만 사용합니다. 기존 VM은 자동으로 교체하지 않습니다.
   update_policy {
-    type                  = "PROACTIVE"
-    minimal_action        = "REPLACE"
-    replacement_method    = "SUBSTITUTE"
-    max_surge_fixed       = 1
-    max_unavailable_fixed = 0
+    type           = "OPPORTUNISTIC"
+    minimal_action = "REFRESH"
+    # REFRESH는 maxUnavailable > 0이 필요합니다. OPPORTUNISTIC은 자동 교체를 시작하지 않습니다.
+    max_unavailable_fixed = 1
   }
 
   # 중지/시작은 MIG stop-instances/start-instances API로 관리합니다.
   # target_size=0 축소 대신 VM과 디스크를 유지한 채 전원을 변경합니다.
   lifecycle {
-    # CD의 템플릿 변경과 mig-power.sh의 전원 상태를 모두 유지합니다.
-    ignore_changes = [version, target_size, target_stopped_size]
+    # 템플릿 참조는 Terraform이 갱신하고, mig-power.sh의 전원 상태는 유지합니다.
+    ignore_changes = [target_size, target_stopped_size]
   }
 
   depends_on = [google_compute_router_nat.app, google_compute_firewall.load_balancer]

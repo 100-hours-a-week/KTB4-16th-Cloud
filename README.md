@@ -2,6 +2,10 @@
 
 MULO의 개발·스테이징·운영 인프라를 Google Cloud에 정의합니다. 기본 리전은 서울(`asia-northeast3`), VM 배치 존은 `asia-northeast3-a`입니다.
 
+2026-10-14부터 진행한 변경 내용, 검증 결과, 장애 이력과 다음 작업은 [작업·검증·인수인계 기록](docs/작업-검증-인수인계.md)에 정리했습니다. MIG·LB 질문 답변과 실행 위치별 확인 명령도 포함합니다.
+
+운영 검증 이후 진행할 수집 자동화·대시보드·알림·장애 재현은 [모니터링 구축·검증 실행 계획](docs/모니터링-구축-실행계획.md)을 따릅니다. Compose 없이 앱이 자동 실행되는 원리도 설명합니다.
+
 ## 환경 한눈에 보기
 
 | 환경 | 앱 배치 | 데이터베이스 | 외부 요청 진입점 |
@@ -38,6 +42,8 @@ enable-pgvector.sql  AI DB의 vector 확장 SQL
 ```
 
 각 `environments/<환경>/main.tf`가 같은 환경의 `modules/<환경>_modules`를 호출합니다. Terraform 명령은 해당 환경 폴더에서 실행하고, 실제 입력값은 그 폴더의 `terraform.tfvars`에 둡니다.
+
+각 환경의 `backend.tf`는 공통 GCS 버킷의 `dev`·`staging`·`prod` 경로로 state를 분리합니다. 버킷 준비와 기존 로컬 state 이전, 팀원 연결은 [팀 공유 state 안내](environments/STATE.md)를 먼저 진행합니다.
 
 ## 관리 범위
 
