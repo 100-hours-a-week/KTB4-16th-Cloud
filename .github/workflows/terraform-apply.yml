@@ -1,0 +1,184 @@
+name: Terraform Apply
+
+# main에 머지되면 바뀐 환경만 plan을 만들고, 환경별 승인을 받은 뒤 그 plan 그대로 apply한다.
+# 수동 실행(workflow_dispatch)으로 원하는 환경만 적용할 수도 있다.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "environments/**"
+      - "modules/**"
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "적용할 환경"
+        required: true
+        type: choice
+        options: [staging, prod]
+      allow_destroy:
+        description: "삭제 또는 교체가 포함된 plan도 적용한다"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.16.4"
+
+jobs:
+  detect:
+    name: 바뀐 환경 찾기
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.pick.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.env }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "envs=[\"$INPUT_ENV\"]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only HEAD^ HEAD)
+          JSON="[]"
+          for e in staging prod; do
+            if echo "$CHANGED" | grep -qE "^(environments/${e}/|modules/${e}_modules/)"; then
+              JSON=$(echo "$JSON" | jq -c --arg e "$e" '. + [$e]')
+            fi
+          done
+          echo "바뀐 환경: $JSON"
+          echo "envs=$JSON" >> "$GITHUB_OUTPUT"
+
+  plan:
+    name: plan (${{ matrix.env }})
+    needs: detect
+    if: needs.detect.outputs.envs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJson(needs.detect.outputs.envs) }}
+    concurrency:
+      group: tf-state-${{ matrix.env }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.TF_WIF_PROVIDER }}
+          service_account: ${{ vars.TF_PLAN_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Write tfvars
+        env:
+          TFVARS: ${{ vars[format('TFVARS_{0}', matrix.env)] }}
+        run: printf '%s\n' "$TFVARS" > terraform.tfvars
+
+      - name: Init
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: Plan
+        run: |
+          set -o pipefail
+          terraform plan -input=false -lock-timeout=60s -no-color -out=tfplan 2>&1 | tee plan.txt
+
+      - name: Summarize changes
+        id: sum
+        run: |
+          terraform show -json tfplan > plan.json
+          ADD=$(jq '[.resource_changes[]? | select(.change.actions==["create"])] | length' plan.json)
+          CHG=$(jq '[.resource_changes[]? | select(.change.actions==["update"])] | length' plan.json)
+          DEL=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' plan.json)
+          echo "$DEL" > destroy.txt
+          {
+            echo "### ${{ matrix.env }}: 추가 ${ADD}, 변경 ${CHG}, 삭제 또는 교체 ${DEL}"
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: |
+            environments/${{ matrix.env }}/tfplan
+            environments/${{ matrix.env }}/plan.txt
+            environments/${{ matrix.env }}/destroy.txt
+          retention-days: 1
+
+  apply:
+    name: apply (${{ matrix.env }})
+    needs: [detect, plan]
+    if: needs.detect.outputs.envs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        env: ${{ fromJson(needs.detect.outputs.envs) }}
+    # 환경(tf-staging, tf-prod)에 지정한 승인자가 승인해야 시작한다.
+    environment: tf-${{ matrix.env }}
+    concurrency:
+      group: tf-state-${{ matrix.env }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: environments/${{ matrix.env }}
+
+      # 삭제 또는 교체가 들어 있으면 수동 실행에서 allow_destroy를 켠 경우에만 진행한다.
+      - name: Guard destroy
+        env:
+          ALLOW: ${{ inputs.allow_destroy }}
+        run: |
+          DESTROY=$(cat destroy.txt)
+          if [ "${DESTROY:-0}" -gt 0 ] && [ "$ALLOW" != "true" ]; then
+            echo "plan에 삭제 또는 교체가 ${DESTROY}건 있습니다. workflow_dispatch에서 allow_destroy를 켜고 다시 실행하세요."
+            exit 1
+          fi
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.TF_WIF_PROVIDER }}
+          service_account: ${{ vars.TF_APPLY_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Write tfvars
+        env:
+          TFVARS: ${{ vars[format('TFVARS_{0}', matrix.env)] }}
+        run: printf '%s\n' "$TFVARS" > terraform.tfvars
+
+      - name: Init
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      # 승인 전에 보여준 plan 그대로 적용한다. 그 사이 상태가 바뀌었으면 실패한다.
+      - name: Apply
+        run: terraform apply -input=false -lock-timeout=60s tfplan
