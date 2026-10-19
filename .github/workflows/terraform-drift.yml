@@ -1,0 +1,72 @@
+name: Terraform Drift
+
+# 코드와 실제 인프라가 달라졌는지(콘솔에서 직접 바꾼 경우 등) 매주 확인한다.
+on:
+  schedule:
+    - cron: "0 0 * * 1"   # 매주 월요일 09:00 KST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.16.4"
+
+jobs:
+  drift:
+    name: drift (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [prod]
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.TF_WIF_PROVIDER }}
+          service_account: ${{ vars.TF_PLAN_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Write tfvars
+        env:
+          TFVARS: ${{ vars[format('TFVARS_{0}', matrix.env)] }}
+        run: printf '%s\n' "$TFVARS" > terraform.tfvars
+
+      - name: Init
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      # 종료 코드 0은 변경 없음, 2는 차이 있음, 1은 오류다.
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=60s -no-color -detailed-exitcode > plan.txt 2>&1
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Discord
+        if: steps.plan.outputs.code != '0'
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          CODE: ${{ steps.plan.outputs.code }}
+          ENV_NAME: ${{ matrix.env }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then exit 0; fi
+          if [ "$CODE" = "2" ]; then MSG="코드와 실제 인프라가 다릅니다"; else MSG="plan 실행에 실패했습니다"; fi
+          jq -n --arg t "Terraform drift (${ENV_NAME})" --arg d "$MSG" --arg u "$RUN_URL" \
+            '{username:"MURO_BOT", embeds:[{title:$t, description:$d, url:$u, color:15158332}]}' \
+            | curl -sS -H "Content-Type: application/json" -d @- "$WEBHOOK" || true
+
+      - name: Fail on error
+        if: steps.plan.outputs.code == '1'
+        run: exit 1
