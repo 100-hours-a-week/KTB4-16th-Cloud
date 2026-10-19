@@ -14,3 +14,10 @@ resource "google_storage_bucket_iam_member" "vm_images" {
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.vm.email}"
 }
+
+# 개발 VM이 키 파일 없이 자신의 계정으로 GCS 서명 URL을 생성합니다.
+resource "google_service_account_iam_member" "vm_self_signer" {
+  service_account_id = google_service_account.vm.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.vm.email}"
+}

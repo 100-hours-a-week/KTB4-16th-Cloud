@@ -34,6 +34,18 @@ output "instance_template_names" {
   value = module.mulo.instance_template_names
 }
 
+output "monitoring_instance_group_name" {
+  value = module.mulo.monitoring_instance_group_name
+}
+
+output "monitoring_urls" {
+  value = module.mulo.monitoring_urls
+}
+
+output "monitoring_dns_records" {
+  value = module.mulo.monitoring_dns_records
+}
+
 output "monitoring_vm_name" {
   value = module.mulo.monitoring_vm_name
 }

@@ -29,13 +29,34 @@ output "site_url" {
 }
 
 output "mig_names" {
-  description = "앱 서비스별 MIG 이름. 앱 VM 이름과 IP는 롤링 교체 시 바뀝니다."
+  description = "앱 서비스별 MIG 이름. 앱 VM을 수동 재생성하면 이름과 IP가 바뀔 수 있습니다."
   value       = { for key, mig in google_compute_instance_group_manager.service : key => mig.name }
 }
 
 output "instance_template_names" {
   description = "Terraform의 기반 템플릿입니다. CD 이후 현재 연결은 mig_instance_template_urls로 확인합니다."
   value       = { for key, template in google_compute_instance_template.service : key => template.name }
+}
+
+output "monitoring_instance_group_name" {
+  description = "기존 모니터링 VM을 등록한 비관리형 인스턴스 그룹 이름"
+  value       = google_compute_instance_group.monitoring.name
+}
+
+output "monitoring_urls" {
+  description = "DNS 연결과 인증서 발급 완료 후 사용하는 모니터링 HTTPS 주소"
+  value       = { for service, config in local.monitoring_services : service => "https://${config.domain}" }
+}
+
+output "monitoring_dns_records" {
+  description = "외부 DNS에 수동 등록할 모니터링 A 레코드. 환경의 기존 LB IP를 사용합니다."
+  value = {
+    for service, config in local.monitoring_services : service => {
+      name    = config.domain
+      type    = "A"
+      rrdatas = [google_compute_global_address.site.address]
+    }
+  }
 }
 
 output "monitoring_vm_name" {

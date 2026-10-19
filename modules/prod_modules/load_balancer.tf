@@ -19,8 +19,8 @@ resource "google_compute_backend_service" "service" {
   port_name                       = "http"
   load_balancing_scheme           = "EXTERNAL_MANAGED"
   connection_draining_timeout_sec = 300
-  # WebSocket 연결과 AI 처리 시간을 고려해 서비스별 요청 제한 시간을 다르게 둡니다.
-  timeout_sec   = each.key == "chat" ? 3600 : (each.key == "ai" ? 300 : 30)
+  # WebSocket 연결, AI 처리, backend 사진 추천 시간을 고려한 요청 제한 시간입니다.
+  timeout_sec   = each.key == "chat" ? 3600 : (each.key == "ai" ? 300 : (each.key == "backend" ? 120 : 30))
   health_checks = [google_compute_health_check.service[each.key].id]
 
   backend {
@@ -47,6 +47,22 @@ resource "google_compute_url_map" "https" {
   host_rule {
     hosts        = [var.domain]
     path_matcher = "mulo"
+  }
+
+  dynamic "host_rule" {
+    for_each = local.monitoring_services
+    content {
+      hosts        = [host_rule.value.domain]
+      path_matcher = host_rule.key
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = local.monitoring_services
+    content {
+      name            = path_matcher.key
+      default_service = google_compute_backend_service.monitoring[path_matcher.key].id
+    }
   }
 
   # 아래 경로에 해당하지 않는 요청은 frontend로 전달합니다.
@@ -87,9 +103,12 @@ resource "google_compute_managed_ssl_certificate" "site" {
 
 # TLS를 종료하고 URL 맵으로 서비스별 라우팅을 수행합니다.
 resource "google_compute_target_https_proxy" "site" {
-  name             = "${var.name_prefix}-https-proxy"
-  url_map          = google_compute_url_map.https.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.site.id]
+  name    = "${var.name_prefix}-https-proxy"
+  url_map = google_compute_url_map.https.id
+  ssl_certificates = concat(
+    [google_compute_managed_ssl_certificate.site.id],
+    [for certificate in google_compute_managed_ssl_certificate.monitoring : certificate.id]
+  )
 }
 
 # DNS에 등록할 외부 주소입니다. HTTP와 HTTPS가 같은 고정 IP를 사용합니다.
