@@ -77,7 +77,8 @@ resource "google_compute_url_map" "https" {
     }
 
     path_rule {
-      paths   = concat(["/ai/*"], var.enable_cloud_tasks ? ["/internal/tasks/*"] : [])
+      # /ai는 콘솔에서 먼저 추가된 규칙이라 실제와 같게 코드에 반영한다.
+      paths   = concat(["/ai", "/ai/*"], var.enable_cloud_tasks ? ["/internal/tasks/*"] : [])
       service = google_compute_backend_service.service["ai"].id
     }
 
