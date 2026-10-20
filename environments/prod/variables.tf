@@ -151,6 +151,7 @@ variable "service_container_images" {
     ai       = "asia-northeast3-docker.pkg.dev/project-7b071b48-8637-467a-80d/ai/ai"
     backend  = "asia-northeast3-docker.pkg.dev/project-7b071b48-8637-467a-80d/backend/backend"
     frontend = "asia-northeast3-docker.pkg.dev/project-7b071b48-8637-467a-80d/frontend/frontend"
+    chat     = "asia-northeast3-docker.pkg.dev/project-7b071b48-8637-467a-80d/chat/chat"
   }
   validation {
     condition     = alltrue([for key in keys(var.service_container_images) : contains(["frontend", "backend", "ai", "chat"], key)])
@@ -162,7 +163,7 @@ variable "service_container_images" {
   }
 }
 
-# chat은 이미지가 준비되면 경로와 최초 태그를 함께 추가합니다.
+# chat은 첫 운영 배포(1.0.0) 뒤에 경로와 최초 태그를 추가했습니다. 이후 실제 배포 태그는 CD가 관리합니다.
 variable "service_image_tags" {
   description = "app-image-tag에 기록할 최초 태그. 이후 실제 배포 태그는 CD가 관리합니다."
   type        = map(string)
@@ -170,6 +171,7 @@ variable "service_image_tags" {
     ai       = "1.5.0"
     backend  = "1.7.0"
     frontend = "1.7.1"
+    chat     = "1.0.0"
   }
   validation {
     condition = alltrue([
