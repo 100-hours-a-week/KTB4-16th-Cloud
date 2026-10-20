@@ -87,6 +87,12 @@ resource "google_compute_url_map" "https" {
       service = google_compute_backend_service.service["backend"].id
     }
 
+    # 채팅 REST API(/api/chat-rooms/**)는 chat 서버가 처리합니다. 더 긴 경로가 우선하므로 /api/* 보다 먼저 적용됩니다.
+    path_rule {
+      paths   = ["/api/chat-rooms", "/api/chat-rooms/*"]
+      service = google_compute_backend_service.service["chat"].id
+    }
+
     path_rule {
       paths   = ["/ws", "/ws/*"]
       service = google_compute_backend_service.service["chat"].id
