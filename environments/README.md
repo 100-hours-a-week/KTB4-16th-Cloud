@@ -84,9 +84,9 @@ Terraform은 VM 사양·부팅 이미지·스크립트·메타데이터를 담�
 | staging | `http://ai.staging.mulo.internal:8000` | `http://backend.staging.mulo.internal:8080/` |
 | prod | `http://ai.prod.mulo.internal:8000` | `http://backend.prod.mulo.internal:8080/` |
 
-기본 도메인·포트 기준이며 실제 값은 `ai_base_url`, `backend_internal_url` 출력으로 확인합니다. env는 사람이 Secret Manager에 입력합니다. 앱이 URL 끝의 `/`나 추가 경로를 요구하면 해당 앱 형식에 맞춥니다.
+기본 도메인·포트 기준이며 실제 값은 `ai_base_url`, `backend_internal_url`, `chat_internal_url` 출력으로 확인합니다. env는 사람이 Secret Manager에 입력합니다. 앱이 URL 끝의 `/`나 추가 경로를 요구하면 해당 앱 형식에 맞춥니다.
 
-외부 LB의 `/api/*`·`/ai/*` 분기는 유지합니다. 내부 TCP LB와 같은 MIG를 공유하는 backend·AI의 외부 분산 설정만 `RATE`로 맞춥니다. `service_max_rate_per_instance`의 기본값은 각각 **VM당 30 RPS**이며 요청 차단 한도나 오토스케일링 설정이 아닙니다. RATE는 외부 LB가 그룹의 목표 처리 용량을 표현하는 기준이며, 내부 TCP LB와 같은 MIG를 공유할 수 있도록 선택한 설정입니다.
+외부 LB의 `/api/*`·`/ai/*` 분기는 유지합니다. 내부 TCP LB와 같은 MIG를 공유하는 backend·AI·chat의 외부 분산 설정만 `RATE`로 맞춥니다. `service_max_rate_per_instance`의 기본값은 각각 **VM당 30 RPS**이며 요청 차단 한도나 오토스케일링 설정이 아닙니다. RATE는 외부 LB가 그룹의 목표 처리 용량을 표현하는 기준이며, 내부 TCP LB와 같은 MIG를 공유할 수 있도록 선택한 설정입니다.
 
 모니터링·Redis는 기존 기반 스크립트를 쓰는 독립 VM입니다. VM 삭제 시 부팅 디스크는 남지만 새 VM에 자동 연결되지는 않습니다. 디스크 축소는 새 디스크 교체가 필요합니다.
 

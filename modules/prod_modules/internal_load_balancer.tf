@@ -1,7 +1,7 @@
-# backend↔AI는 VM IP 대신 예약된 내부 LB 주소로 통신합니다.
+# backend↔AI, backend↔chat은 VM IP 대신 예약된 내부 LB 주소로 통신합니다.
 # 외부 HTTP LB와 같은 MIG를 공유하므로 외부는 RATE, 내부는 CONNECTION을 사용합니다.
 locals {
-  internal_services = toset(["backend", "ai"])
+  internal_services = toset(["backend", "ai", "chat"])
 }
 
 resource "google_compute_address" "service_internal" {
@@ -43,7 +43,7 @@ resource "google_compute_forwarding_rule" "internal" {
   subnetwork            = local.subnetwork_id
 }
 
-# TCP LB는 클라이언트 IP를 유지하므로 앱 VM 사이에 backend·AI 포트를 허용합니다.
+# TCP LB는 클라이언트 IP를 유지하므로 앱 VM 사이에 backend·AI·chat 포트를 허용합니다.
 resource "google_compute_firewall" "app_internal" {
   name        = "${var.name_prefix}-allow-app-internal"
   network     = local.network_name
