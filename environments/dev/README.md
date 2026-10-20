@@ -8,7 +8,7 @@
 
 | 리소스 | 기본 구성 | 역할 |
 | --- | --- | --- |
-| 앱 VM | Ubuntu 22.04, `e2-medium`, 30GB | 서비스 4개와 Nginx 실행 환경 |
+| 앱 VM | Ubuntu 22.04, `e2-standard-2`, 30GB | 서비스 4개와 Nginx 실행 환경 |
 | MySQL | 8.4, `db-g1-small`, 20GB | `mulo`·`mulo_chat` DB |
 | PostgreSQL | 18, `db-g1-small`, 20GB | AI용 `muro_ai` DB |
 | GCS | 새 비공개 버킷 | 이미지 저장 |
