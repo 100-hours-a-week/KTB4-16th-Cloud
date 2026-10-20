@@ -221,18 +221,18 @@ variable "service_image_tags" {
 variable "service_max_rate_per_instance" {
   description = "내부 TCP LB와 MIG를 공유하는 외부 LB의 VM당 목표 RPS. 요청 차단 한도가 아닙니다."
   type        = map(number)
-  default     = { backend = 30, ai = 30 }
+  default     = { backend = 30, ai = 30, chat = 30 }
 
   validation {
     condition = alltrue([
-      for service in ["backend", "ai"] : try(var.service_max_rate_per_instance[service] > 0, false)
-    ]) && alltrue([for service in keys(var.service_max_rate_per_instance) : contains(["backend", "ai"], service)])
-    error_message = "backend와 ai의 VM당 목표 RPS를 양수로 지정해야 합니다."
+      for service in ["backend", "ai", "chat"] : try(var.service_max_rate_per_instance[service] > 0, false)
+    ]) && alltrue([for service in keys(var.service_max_rate_per_instance) : contains(["backend", "ai", "chat"], service)])
+    error_message = "backend, ai, chat의 VM당 목표 RPS를 양수로 지정해야 합니다."
   }
 }
 
 variable "internal_dns_domain" {
-  description = "backend와 AI 내부 LB의 DNS 도메인. 마지막 점(.)을 포함합니다."
+  description = "backend, AI, chat 내부 LB의 DNS 도메인. 마지막 점(.)을 포함합니다."
   type        = string
   default     = "prod.mulo.internal."
   validation {

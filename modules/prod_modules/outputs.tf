@@ -7,6 +7,10 @@ output "ai_base_url" {
   value = "http://${trimsuffix(google_dns_record_set.service_internal["ai"].name, ".")}:${var.service_ports.ai}"
 }
 
+output "chat_internal_url" {
+  value = "http://${trimsuffix(google_dns_record_set.service_internal["chat"].name, ".")}:${var.service_ports.chat}"
+}
+
 output "internal_load_balancer_ips" {
   value = { for service, address in google_compute_address.service_internal : service => address.address }
 }
