@@ -27,6 +27,11 @@ resource "google_compute_instance_template" "service" {
     lookup(var.service_container_images, each.key, "") != "" ? {
       app-image     = var.service_container_images[each.key]
       app-image-tag = lookup(var.service_image_tags, each.key, "")
+    } : {},
+    contains(["ai", "backend", "chat"], each.key) ? {
+      alloy-service     = each.key
+      alloy-environment = "prod"
+      alloy-loki-url    = "http://${google_compute_address.monitoring_internal.address}:3100/loki/api/v1/push"
     } : {}
   )
   metadata_startup_script = var.bootstrap_script
