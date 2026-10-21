@@ -62,6 +62,16 @@ Cloud Tasks 큐는 기본 `mulo-v2-ai-task`입니다. Redis·모니터링의 내
 
 운영은 staging과 달리 24시간 실행하므로 별도 전원 관리 스크립트가 필요하지 않습니다.
 
+### Docker 로그 수집
+
+AI·backend·chat의 부팅 스크립트는 Grafana Alloy를 설치하고 Docker stdout·stderr 로그를 Loki로 전송합니다. 전송 주소는 예약된 모니터링 내부 IP의 `3100/loki/api/v1/push`이며, 템플릿의 `alloy-service`·`alloy-environment`·`alloy-loki-url` 메타데이터로 설정합니다. 로그에는 `job="docker-logs"`, `environment="prod"`, 서비스·VM 호스트명·컨테이너 이름을 라벨로 붙입니다.
+
+Alloy 설정은 `/etc/alloy/config.alloy`에 저장하며 `alloy validate`를 통과한 파일만 반영합니다. `alloy` 사용자에게 Docker 그룹 권한을 부여하고 Docker 이후 Alloy를 자동 시작합니다. 기존 설치 완료 표시가 있거나 Chat 앱 이미지가 없어도 Alloy 설치 여부는 별도로 확인합니다. Alloy 설치·설정·재시작 또는 Loki 준비 확인이 실패해도 경고를 기록하고 앱 시작은 계속합니다. 실패 원인은 `/var/log/mulo-bootstrap.log`와 `journalctl -u alloy`에서 확인합니다.
+
+frontend는 같은 부팅 스크립트를 사용하므로 템플릿 교체 대상에 포함되지만 Alloy 설치는 건너뜁니다. 기존 Loki 수신 방화벽을 사용하며 Loki 서버 설치는 포함하지 않습니다.
+
+**기존 운영 VM에는 Terraform 적용만으로 Alloy가 설치되지 않습니다.** MIG는 `ignore_changes = [version]`으로 CD 템플릿을 유지합니다. 실제 전환 전 현재 배포 이미지·태그를 Terraform 입력과 맞추고 [부팅 템플릿 전환 안내](../BOOTSTRAP.md#3-terraform과-cd가-공유하는-값)에 따라 새 계획을 검토하거나, CD가 사용하는 템플릿에 부팅 스크립트와 Alloy 메타데이터를 함께 반영해야 합니다. 이전 이미지 태그를 둔 채 version 무시만 해제하면 앱 버전이 되돌아갈 수 있습니다.
+
 ## 모니터링 도메인 접속
 
 기존 모니터링 VM을 `google_compute_instance_group.monitoring` 비관리형 그룹에 등록하고, 기존 외부 HTTPS LB에 Grafana·Prometheus 백엔드를 추가합니다. VM·디스크·고정 내부 IP는 그대로 사용하며 앱 MIG의 롤링 배포나 자동 복구 대상에 포함하지 않습니다.
