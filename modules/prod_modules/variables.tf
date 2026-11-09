@@ -163,7 +163,12 @@ variable "bootstrap_script" {
 }
 
 variable "base_bootstrap_script" {
-  description = "독립 Redis·모니터링 VM의 기존 기반 설치 스크립트"
+  description = "독립 모니터링 VM의 기반 설치 스크립트"
+  type        = string
+}
+
+variable "redis_bootstrap_script" {
+  description = "Redis VM에서 Docker Engine·Compose만 준비하는 부팅 스크립트"
   type        = string
 }
 
