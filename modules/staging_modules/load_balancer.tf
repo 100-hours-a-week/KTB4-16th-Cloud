@@ -70,6 +70,17 @@ resource "google_compute_url_map" "https" {
     name            = "mulo"
     default_service = google_compute_backend_service.service["frontend"].id
 
+    # HTTPS 응답에 HSTS를 붙여 브라우저가 이 도메인을 HTTPS로만 접속하게 합니다.
+    # 처음에는 짧게(300초) 시작하고, 문제가 없으면 86400, 31536000 순으로 올립니다.
+    # includeSubDomains와 preload는 모니터링 서브도메인 영향을 확인한 뒤에 검토합니다.
+    header_action {
+      response_headers_to_add {
+        header_name  = "Strict-Transport-Security"
+        header_value = "max-age=300"
+        replace      = true
+      }
+    }
+
     # 이미지 권한 확인과 버킷 접근은 backend가 처리합니다.
     path_rule {
       paths   = ["/image", "/image/*"]
