@@ -52,7 +52,17 @@
 
 ## 앱과 공용 서비스
 
-[bootstrap.sh](bootstrap.sh)는 최초에 Docker·Google Cloud CLI·Ops Agent와 스왑을 준비하고, 매 부팅마다 이미지와 Secret Manager의 env로 앱을 실행합니다. Node Exporter도 자동으로 실행합니다. Redis·모니터링은 [base-bootstrap.sh](base-bootstrap.sh)의 기존 설치 방식을 유지하며 서비스는 직접 관리합니다.
+[bootstrap.sh](bootstrap.sh)는 최초에 Docker·Google Cloud CLI·Ops Agent와 스왑을 준비하고, 매 부팅마다 이미지와 Secret Manager의 env로 앱을 실행합니다. Node Exporter도 자동으로 실행합니다. 모니터링은 [base-bootstrap.sh](base-bootstrap.sh)를 사용하며 서비스는 직접 관리합니다.
+
+Redis는 [redis-bootstrap.sh](redis-bootstrap.sh)로 Docker Engine과 Compose만 준비합니다. 매 부팅마다 실제 설치 여부를 검사해 없을 때만 공식 apt 저장소에서 설치하고 Docker 자동 시작을 활성화합니다. 앱·Alloy·Node Exporter·Ops Agent·Cloud CLI는 설치하지 않으며 Redis 컨테이너의 이미지·설정·볼륨은 직접 관리합니다. 기존에 설치된 패키지는 제거하지 않습니다.
+
+Redis 부팅 스크립트는 `metadata.startup-script`로 관리하므로 이후 스크립트를 바꿔도 VM을 교체하지 않습니다. 기존 `metadata_startup_script` 상태에서 처음 전환할 때는 기존 `base-bootstrap.sh` 내용을 그대로 `metadata.startup-script`에 옮겨 적용한 뒤 전용 스크립트로 변경해야 합니다. 각 계획에서 VM·디스크 교체가 없는지 확인합니다. 실행 중인 VM에는 메타데이터 갱신 후 다음 명령으로 재부팅 없이 실행할 수 있습니다.
+
+```bash
+gcloud compute ssh mulo-v2-redis \
+  --project=project-7b071b48-8637-467a-80d --zone=asia-northeast3-a \
+  --tunnel-through-iap --command='sudo google_metadata_script_runner startup'
+```
 
 최초 적용과 CD 연결은 [앱 부팅 전환 안내](../BOOTSTRAP.md), 교체·헬스체크·내부 서비스 주소는 [공통 MIG 설명](../README.md#앱-mig의-동작)을 참고하세요.
 

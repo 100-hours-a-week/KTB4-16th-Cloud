@@ -26,9 +26,9 @@ resource "google_compute_backend_service" "service" {
   backend {
     group = google_compute_instance_group_manager.service[each.key].instance_group
     # URL 맵의 경로 분기는 유지합니다. RATE는 서비스 그룹의 목표 용량입니다.
-    # 내부 TCP LB(CONNECTION)와 같은 MIG를 공유하도록 backend·AI만 RATE를 사용합니다.
-    balancing_mode        = contains(["backend", "ai"], each.key) ? "RATE" : "UTILIZATION"
-    max_rate_per_instance = contains(["backend", "ai"], each.key) ? var.service_max_rate_per_instance[each.key] : null
+    # 내부 TCP LB(CONNECTION)와 같은 MIG를 공유하도록 backend·AI·chat만 RATE를 사용합니다.
+    balancing_mode        = contains(["backend", "ai", "chat"], each.key) ? "RATE" : "UTILIZATION"
+    max_rate_per_instance = contains(["backend", "ai", "chat"], each.key) ? var.service_max_rate_per_instance[each.key] : null
     capacity_scaler       = 1.0
   }
 

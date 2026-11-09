@@ -12,7 +12,7 @@ resource "google_compute_address" "redis_internal" {
   subnetwork   = local.subnetwork_id
 }
 
-# Redis는 앱 롤링 배포와 독립적인 단일 VM입니다. 설치와 Compose는 수동 관리합니다.
+# Redis는 앱 롤링 배포와 독립적인 단일 VM입니다. Redis와 Compose 설정은 수동 관리합니다.
 resource "google_compute_instance" "redis" {
   name                      = "${var.name_prefix}-redis"
   zone                      = var.zone
@@ -20,9 +20,11 @@ resource "google_compute_instance" "redis" {
   allow_stopping_for_update = true
   tags                      = ["${var.name_prefix}-redis"]
   labels                    = { service = "redis", environment = "prod" }
-  metadata                  = { enable-oslogin = "TRUE" }
-  # 기존 스크립트 내용을 유지해 앱 자동 부팅 작업으로 Redis VM을 교체하지 않습니다.
-  metadata_startup_script = var.base_bootstrap_script
+  # startup-script 메타데이터를 사용해 스크립트 변경 시 VM·디스크 교체를 피합니다.
+  metadata = {
+    enable-oslogin = "TRUE"
+    startup-script = var.redis_bootstrap_script
+  }
 
   boot_disk {
     # VM 제거 시 디스크는 남깁니다. 교체 VM에 자동 연결되는 것은 아닙니다.
