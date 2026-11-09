@@ -6,6 +6,10 @@ output "ai_base_url" {
   value = module.mulo.ai_base_url
 }
 
+output "chat_internal_url" {
+  value = module.mulo.chat_internal_url
+}
+
 output "internal_load_balancer_ips" {
   value = module.mulo.internal_load_balancer_ips
 }

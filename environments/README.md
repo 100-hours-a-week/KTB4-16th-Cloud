@@ -54,7 +54,7 @@ backend는 MySQL과 이미지 버킷, AI는 PostgreSQL, chat은 chat MySQL에 �
 | 앱 VM → 모니터링 VM | 3100 | Loki 로그 전송 |
 | IAP → VM | 22 | SSH 접속 |
 
-스테이징·운영 VM에는 공인 IP가 없고 외부 이미지 다운로드·API 호출은 Cloud NAT를 거칩니다. 모니터링과 Redis는 LB에 연결하지 않습니다. 앱 VM의 Node Exporter는 부팅 스크립트가 실행합니다. Redis·Prometheus·Loki 스택과 로그 수집기는 직접 구성합니다.
+스테이징·운영 VM에는 공인 IP가 없고 외부 이미지 다운로드·API 호출은 Cloud NAT를 거칩니다. 모니터링과 Redis는 앱용 LB에 연결하지 않습니다. 앱 VM의 Node Exporter는 부팅 스크립트가 실행합니다. AI·backend·chat의 Docker 로그는 부팅 스크립트가 설치하는 Grafana Alloy로 수집합니다. Redis·Prometheus·Loki 스택은 직접 구성합니다. 수집 설정과 기존 VM 반영 방법은 [Alloy 설치 안내](ALLOY.md)를 참고하세요.
 
 Prometheus는 앱 IP를 고정해서 적는 대신 [GCE 자동 탐색](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#gce_sd_config)으로 현재 내부 IP를 찾을 수 있습니다. VM 라벨의 `environment`는 staging 또는 prod, `service`는 frontend·backend·ai·chat입니다. 모니터링 계정의 VM 조회 권한은 직접 부여합니다.
 
@@ -88,7 +88,7 @@ Terraform은 VM 사양·부팅 이미지·스크립트·메타데이터를 담�
 
 외부 LB의 `/api/*`·`/ai/*` 분기는 유지합니다. 내부 TCP LB와 같은 MIG를 공유하는 backend·AI·chat의 외부 분산 설정만 `RATE`로 맞춥니다. `service_max_rate_per_instance`의 기본값은 각각 **VM당 30 RPS**이며 요청 차단 한도나 오토스케일링 설정이 아닙니다. RATE는 외부 LB가 그룹의 목표 처리 용량을 표현하는 기준이며, 내부 TCP LB와 같은 MIG를 공유할 수 있도록 선택한 설정입니다.
 
-모니터링·Redis는 기존 기반 스크립트를 쓰는 독립 VM입니다. VM 삭제 시 부팅 디스크는 남지만 새 VM에 자동 연결되지는 않습니다. 디스크 축소는 새 디스크 교체가 필요합니다.
+Redis·모니터링은 독립 VM입니다. 운영 Redis는 [Docker 전용 스크립트](prod/redis-bootstrap.sh)를, 스테이징 Redis와 모니터링 VM은 기존 기반 스크립트를 사용합니다. VM 삭제 시 부팅 디스크는 남지만 새 VM에 자동 연결되지는 않습니다. 디스크 축소는 새 디스크 교체가 필요합니다.
 
 ## 입력값·권한·상태
 

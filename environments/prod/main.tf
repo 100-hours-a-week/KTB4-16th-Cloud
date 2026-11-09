@@ -13,9 +13,10 @@ module "mulo" {
   subnet_cidr                          = var.subnet_cidr
   service_ports                        = var.service_ports
   health_paths                         = var.health_paths
-  # 앱과 독립 VM의 스크립트를 분리해 Redis·모니터링의 기존 설치를 유지합니다.
+  # 앱·Redis·모니터링의 부팅 스크립트를 각각 관리합니다.
   bootstrap_script              = file("${path.module}/bootstrap.sh")
   base_bootstrap_script         = file("${path.module}/base-bootstrap.sh")
+  redis_bootstrap_script        = file("${path.module}/redis-bootstrap.sh")
   shutdown_script               = file("${path.module}/shutdown.sh")
   service_image_tags            = var.service_image_tags
   internal_dns_domain           = var.internal_dns_domain

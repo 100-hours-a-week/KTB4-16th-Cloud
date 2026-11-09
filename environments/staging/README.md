@@ -25,6 +25,8 @@
 
 전용 VPC의 서브넷은 기본 `10.21.0.0/24`, 리소스 접두사는 `mulo-v2-staging`입니다. VM의 외부 통신은 Cloud NAT, SSH 접속은 IAP를 사용합니다. LB의 연결 드레이닝은 **60초**, 요청 로그는 비활성화되어 있습니다.
 
+backend·AI·chat은 내부 LB와 사설 DNS로 통신합니다. backend env의 `CHAT_SERVER_BASE_URL`에는 `http://chat.staging.mulo.internal:8081`을 사용합니다. Terraform은 내부 주소와 앱 간 포트 접근을 구성하고, 실제 env는 Secret Manager에서 관리합니다.
+
 ## 데이터 구성
 
 | 서비스 | Cloud SQL 인스턴스 | 버전 | DB 이름 |
@@ -51,7 +53,9 @@ Cloud Tasks는 `mulo-v2-staging-ai-task` 큐와 OIDC용 계정을 생성합니�
 
 ### 자동 교체 없는 템플릿 관리
 
-[compute.tf](../../modules/staging_modules/compute.tf)의 앱 MIG는 `OPPORTUNISTIC` 정책을 사용합니다. `service_image_tags`나 앱 디스크 크기를 바꾸면 Terraform이 새 템플릿을 만들고 MIG의 참조를 갱신하지만, 실행 중인 VM을 자동 교체하거나 재시작하지 않습니다. 새 설정은 이후 생성하거나 명시적으로 재생성한 VM에 적용됩니다.
+스테이징의 `service_image_tags`에는 `dev-1.29.0`처럼 `dev-` 접두사가 붙은 이미지 태그를 지정합니다. Artifact Registry에 실제로 존재하는 서비스별 dev 버전을 사용하며, 새 버전을 배포할 때 이 값을 갱신합니다. 접두사가 없는 태그는 변수 검증에서 거부합니다.
+
+[compute.tf](../../modules/staging_modules/compute.tf)의 앱 MIG는 `OPPORTUNISTIC` 정책을 사용합니다. `service_image_tags`나 앱 디스크 크기를 바꾸면 Terraform이 새 템플릿을 만들고 MIG의 참조를 갱신하지만, 실행 중인 VM을 자동 교체하거나 재시작하지 않습니다. 새 설정은 이후 생성하거나 명시적으로 업데이트한 VM에 적용됩니다.
 
 HTTP 헬스체크 실패에 대한 자동 복구는 `on_failed_health_check = "DO_NOTHING"`으로 설정합니다. 헬스체크와 LB 라우팅은 유지되며, 비정상 앱의 복구는 직접 진행해야 합니다. VM 자체의 장애 복구는 `default_action_on_failure = "REPAIR"`로 유지합니다. 이 값을 `DO_NOTHING`으로 설정하면 GCP가 MIG의 중지·일시중지를 허용하지 않아 `mig-power.sh stop`이 실패합니다. `terraform apply`는 기존 VM에서 부팅 스크립트를 다시 실행하지 않습니다.
 
@@ -77,6 +81,21 @@ sudo docker ps -a
 ```
 
 이미지 태그를 Terraform에서 바꿔도 기존 VM의 메타데이터는 갱신되지 않습니다. 위 명령만으로 새 템플릿의 태그가 기존 VM에 적용되지는 않습니다.
+
+### 기존 VM에 이미지 태그·부팅 스크립트 반영
+
+`terraform apply`로 새 템플릿을 연결한 뒤 MIG의 `update-instances`로 기존 VM에 설정을 반영합니다. 태그·부팅 스크립트 등 메타데이터 변경은 아래처럼 재시작까지 요청해 부팅 스크립트가 새 이미지를 실행하게 합니다. 재시작 중 해당 VM의 앱은 중단됩니다. 디스크 변경처럼 VM 교체가 필요한 변경은 아래 명령의 `restart` 제한 때문에 실패하므로 별도로 검토합니다.
+
+```bash
+gcloud compute instance-groups managed update-instances mulo-v2-staging-backend-mig \
+  --all-instances \
+  --minimal-action=restart \
+  --most-disruptive-allowed-action=restart \
+  --project=project-7b071b48-8637-467a-80d \
+  --zone=asia-northeast3-a
+```
+
+frontend·chat은 그룹 이름을 바꿔 같은 순서로 진행합니다. AI는 두 VM을 `--instances=VM_NAME`으로 한 대씩 지정하고 첫 VM이 정상 상태가 된 뒤 다음 VM을 진행합니다. VM의 `docker ps`에서 태그를 확인하고 외부 LB 헬스도 확인합니다.
 
 ### mig-power.sh 사용
 
@@ -160,7 +179,7 @@ terraform output monitoring_urls
 | `load_balancer_ip`, `site_url` | 외부 접속 주소 |
 | `mig_names`, `mig_instance_template_urls` | 앱 MIG와 현재 연결 템플릿 |
 | `instance_template_names` | Terraform이 만든 기반 템플릿 |
-| `ai_base_url`, `backend_internal_url` | 앱 env에 넣을 고정 내부 주소 |
+| `ai_base_url`, `backend_internal_url`, `chat_internal_url` | 앱 env에 넣을 고정 내부 주소 |
 | `app_env_secret_names` | 서비스별 env 시크릿 이름 |
 | `mysql_private_ips`, `postgres_private_ip` | DB 사설 주소 |
 | `redis_private_ip`, `redis_port` | Redis 연결 주소·포트 |
