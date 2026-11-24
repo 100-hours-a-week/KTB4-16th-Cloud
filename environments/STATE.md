@@ -33,7 +33,7 @@ terraform state list
 
 이미 올바른 ADC 계정으로 인증되어 있다면 로그인 단계는 생략합니다. state 복사 확인 질문에 승인한 뒤, 기존 리소스가 목록에 유지되는지와 GCS의 `prod/default.tfstate`를 확인합니다. state 이전은 저장 위치를 바꾸며 인프라에 `apply`를 수행하지 않습니다.
 
-이전 전에 저장한 plan은 재사용하지 않고 새로 생성합니다. `terraform plan`에서 기존 리소스를 대량으로 새로 생성하려는 계획이 나타나면 백엔드의 버킷·prefix·workspace와 이전된 state를 확인합니다. staging의 중지된 Cloud SQL을 조회하는 계획은 [staging 시작 절차](staging/README.md#스테이징-전체-중지와-시작)에 따라 DB가 실행 중일 때 확인합니다.
+이전 전에 저장한 plan은 재사용하지 않고 새로 생성합니다. `terraform plan`에서 기존 리소스를 대량으로 새로 생성하려는 계획이 나타나면 백엔드의 버킷·prefix·workspace와 이전된 state를 확인합니다.
 
 `-migrate-state`는 기존 state를 복사합니다. 최초 이전 담당자는 이 옵션을 사용합니다. [Terraform init 공식 문서](https://developer.hashicorp.com/terraform/cli/commands/init#backend-initialization)
 
