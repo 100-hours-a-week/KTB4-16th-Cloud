@@ -1,0 +1,269 @@
+#!/bin/bash
+# SSM이 각 Control Plane에서 root로 실행한다. 세 가지 host timer를 설치한다.
+#  1) mulo-etcd-snapshot.timer : 1시간마다 etcd 스냅샷을 S3에 올린다(리더 노드만).
+#  2) mulo-worker-token.timer  : 6시간마다 워커 가입 토큰을 새로 발급해 SSM에 올린다.
+#  3) mulo-node-gc.timer       : 5분마다 EC2가 없어진 워커의 Node 객체를 지운다(cloud-controller-manager 대용).
+# 클러스터 안의 CronJob은 API 서버나 etcd가 죽으면 같이 멈추므로 호스트 timer로 둔다.
+# 여러 번 실행해도 같은 파일을 덮어쓸 뿐이다.
+set -euo pipefail
+umask 077
+export AWS_PAGER=""
+
+# kubeadm으로 만든 CP가 아니면 아무것도 하지 않는다.
+if [[ ! -f /etc/kubernetes/manifests/etcd.yaml || ! -f /etc/kubernetes/admin.conf ]]; then
+  echo "kubeadm Control Plane이 아니라 건너뜁니다."
+  exit 0
+fi
+
+# ---------- etcd 전용 디스크 보호 (매 실행마다 확인) ----------
+# etcd는 /var/lib/etcd의 전용 EBS에 있어야 한다. fstab에 nofail을 쓰므로 마운트가 실패해도 부팅은 되는데,
+# 그대로 kubelet이 뜨면 etcd static Pod가 루트 디스크의 빈 디렉터리에 데이터를 쓴다.
+# 1) 지금 마운트가 아니면 실패로 끝내 SSM association 상태로 드러나게 한다.
+if ! mountpoint -q /var/lib/etcd || [[ "$(findmnt -n -o SOURCE /var/lib/etcd)" == "$(findmnt -n -o SOURCE /)" ]]; then
+  echo "/var/lib/etcd가 전용 볼륨에 마운트돼 있지 않습니다. kubelet을 멈추고 마운트를 복구하세요." >&2
+  exit 1
+fi
+# 2) 다음 부팅부터는 마운트가 없으면 kubelet(=etcd static Pod)이 아예 시작되지 않게 한다.
+DROPIN=/etc/systemd/system/kubelet.service.d/10-mulo-etcd-mount.conf
+WANT='[Unit]
+RequiresMountsFor=/var/lib/etcd'
+if [[ "$(cat "$DROPIN" 2>/dev/null)" != "$WANT" ]]; then
+  mkdir -p "$(dirname "$DROPIN")"
+  printf '%s\n' "$WANT" > "$DROPIN"
+  chmod 0644 "$DROPIN"
+  systemctl daemon-reload
+  echo "kubelet이 /var/lib/etcd 마운트를 기다리도록 설정했습니다: $DROPIN"
+fi
+
+# SSM association이 30분마다 이 스크립트를 다시 실행한다(처음 구축 때 kubeadm init이 끝나면 자동으로 설치되게).
+# 이미 같은 버전이 설치돼 있으면 아무것도 하지 않는다. 그래야 실행할 때마다 가입 토큰이 새로 늘어나지 않는다.
+STAMP=/etc/mulo-control-plane-timers.sha256
+SELF_SHA="$(sha256sum "$0" | awk '{print $1}')"
+if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$SELF_SHA" ]] \
+  && systemctl is-enabled --quiet mulo-worker-token.timer \
+  && systemctl is-enabled --quiet mulo-etcd-snapshot.timer \
+  && systemctl is-enabled --quiet mulo-node-gc.timer; then
+  echo "같은 버전의 timer가 이미 설치돼 있어 건너뜁니다."
+  exit 0
+fi
+
+# 필요한 도구가 없으면 설치한다. Kubernetes 패키지는 건드리지 않는다.
+if ! command -v aws >/dev/null || ! command -v jq >/dev/null; then
+  apt-get -o DPkg::Lock::Timeout=120 update
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 \
+    install -y --no-install-recommends awscli jq
+fi
+# etcd 스냅샷은 crictl로 etcd 컨테이너 안의 etcdctl을 부른다. kubeadm 1.36은 crictl을 같이 깔지 않으므로
+# AMI에 없으면 이미 등록된 pkgs.k8s.io 저장소에서 cri-tools를 설치한다.
+if ! command -v crictl >/dev/null; then
+  apt-get -o DPkg::Lock::Timeout=120 update
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 \
+    install -y --no-install-recommends cri-tools
+fi
+command -v crictl >/dev/null || { echo "cri-tools 설치에 실패했습니다. pkgs.k8s.io 저장소를 확인하세요." >&2; exit 1; }
+
+# ---------- etcd 스냅샷 ----------
+cat > /usr/local/sbin/mulo-etcd-snapshot.sh <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+umask 077
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export AWS_PAGER=""
+REGION="${region}"
+BUCKET="${etcd_bucket}"
+CRICTL="crictl --runtime-endpoint unix:///run/containerd/containerd.sock"
+
+# kubeadm static Pod의 etcd 컨테이너 안에 있는 etcdctl을 쓴다. 호스트에 etcdctl을 따로 깔지 않는다.
+CID="$($CRICTL ps --name '^etcd$' --state running -q | head -n1)"
+if [[ -z "$CID" ]]; then
+  echo "실행 중인 etcd 컨테이너가 없습니다." >&2
+  exit 1
+fi
+etcdctl() {
+  $CRICTL exec "$CID" etcdctl --endpoints=https://127.0.0.1:2379 \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+    --cert=/etc/kubernetes/pki/etcd/server.crt \
+    --key=/etc/kubernetes/pki/etcd/server.key "$@"
+}
+
+# 같은 스냅샷을 3번 올리지 않도록 리더인 CP만 올린다.
+STATUS="$(etcdctl endpoint status --write-out=fields)"
+MEMBER="$(awk -F' : ' '/^"MemberID"/{print $2}' <<< "$STATUS")"
+LEADER="$(awk -F' : ' '/^"Leader"/{print $2}' <<< "$STATUS")"
+if [[ -z "$MEMBER" || "$MEMBER" != "$LEADER" ]]; then
+  echo "이 노드는 etcd 리더가 아니라 건너뜁니다."
+  exit 0
+fi
+
+# /var/lib/etcd는 etcd 컨테이너와 호스트가 같이 보는 경로다.
+FILE=/var/lib/etcd/mulo-snapshot.db
+trap 'rm -f "$FILE" "$FILE.part"' EXIT
+etcdctl snapshot save "$FILE"
+
+KEY="snapshots/$(date -u +%Y/%m/%d)/$(hostname)-$(date -u +%Y%m%dT%H%M%SZ).db"
+aws s3 cp "$FILE" "s3://$BUCKET/$KEY" --region "$REGION" --only-show-errors
+echo "etcd 스냅샷 업로드 완료: s3://$BUCKET/$KEY"
+SCRIPT
+chmod 0700 /usr/local/sbin/mulo-etcd-snapshot.sh
+
+cat > /etc/systemd/system/mulo-etcd-snapshot.service <<'UNIT'
+[Unit]
+Description=Upload etcd snapshot to S3
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/mulo-etcd-snapshot.sh
+TimeoutStartSec=600
+UMask=0077
+UNIT
+
+cat > /etc/systemd/system/mulo-etcd-snapshot.timer <<'UNIT'
+[Unit]
+Description=Upload etcd snapshot every hour
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=mulo-etcd-snapshot.service
+[Install]
+WantedBy=timers.target
+UNIT
+
+# ---------- 워커 가입 토큰 ----------
+cat > /usr/local/sbin/publish-worker-join.sh <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+umask 077
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export AWS_PAGER=""
+REGION="${region}"
+PARAMETER="${parameter_name}"
+API_ENDPOINT="${api_endpoint}"
+REQUEST_FILE="$(mktemp /run/mulo-worker-request.XXXXXX)"
+trap 'rm -f "$REQUEST_FILE"' EXIT
+ISSUED_AT="$(date +%s)"
+EXPIRES_AT="$((ISSUED_AT + 86400))"
+TOKEN="$(kubeadm token create --kubeconfig /etc/kubernetes/admin.conf \
+  --ttl 24h --description mulo-worker-autojoin)"
+CA_HASH="sha256:$(openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt -noout \
+  | openssl pkey -pubin -outform DER \
+  | openssl dgst -sha256 -hex | awk '{print $NF}')"
+jq -n --arg name "$PARAMETER" --arg endpoint "$API_ENDPOINT" \
+  --arg token "$TOKEN" --arg hash "$CA_HASH" \
+  --argjson issued "$ISSUED_AT" --argjson expires "$EXPIRES_AT" \
+  '{Name:$name,Type:"SecureString",KeyId:"alias/aws/ssm",Overwrite:true,
+    Value:({apiServerEndpoint:$endpoint,token:$token,caCertHash:$hash,
+            issuedAt:$issued,expiresAt:$expires}|tojson)}' > "$REQUEST_FILE"
+aws ssm put-parameter --region "$REGION" --cli-input-json "file://$REQUEST_FILE" >/dev/null
+echo "가입 정보 게시 완료: expiresAt=$EXPIRES_AT"
+SCRIPT
+chmod 0700 /usr/local/sbin/publish-worker-join.sh
+
+cat > /etc/systemd/system/mulo-worker-token.service <<'UNIT'
+[Unit]
+Description=Publish worker join information to SSM
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/publish-worker-join.sh
+TimeoutStartSec=300
+UMask=0077
+UNIT
+
+cat > /etc/systemd/system/mulo-worker-token.timer <<'UNIT'
+[Unit]
+Description=Refresh worker join token every six hours
+[Timer]
+OnBootSec=2min
+OnCalendar=*-*-* 00,06,12,18:00:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=mulo-worker-token.service
+[Install]
+WantedBy=timers.target
+UNIT
+
+# ---------- 종료된 EC2의 Node 정리 ----------
+# 이 클러스터는 AWS cloud-controller-manager가 없어서, Cluster Autoscaler가 줄이거나 ASG가 교체해
+# EC2가 없어져도 Node 객체가 NotReady로 계속 남는다(CA는 EC2만 지운다). 남은 Node가 쌓이면 CA가
+# 클러스터를 비정상으로 보고 증설을 멈출 수 있다. 5분마다 확인해서, NotReady가 10분 넘은 워커 중
+# EC2가 terminated/shutting-down이거나 아예 없는 것만 지운다. AWS 조회가 애매하면 지우지 않는다.
+cat > /usr/local/sbin/mulo-node-gc.sh <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export AWS_PAGER=""
+export KUBECONFIG=/etc/kubernetes/admin.conf
+REGION="${region}"
+GRACE=600     # NotReady가 이 시간(초) 넘은 Node만 본다
+MAX_DELETE=3  # 한 번에 지우는 최대 개수(이상 상황에서 대량 삭제 방지)
+
+CANDIDATES="$(kubectl get nodes -o json | jq -r --argjson grace "$GRACE" '
+  .items[]
+  | select(.metadata.labels["node-role.kubernetes.io/control-plane"] == null)
+  | select((.spec.providerID // "") | startswith("aws:///"))
+  | (.status.conditions[] | select(.type == "Ready")) as $r
+  | select($r.status != "True")
+  | select((now - ($r.lastTransitionTime | fromdateiso8601)) > $grace)
+  | "\(.metadata.name) \(.spec.providerID | split("/") | last)"')"
+[[ -z "$CANDIDATES" ]] && exit 0
+
+DELETED=0
+while read -r NODE IID; do
+  [[ "$DELETED" -ge "$MAX_DELETE" ]] && { echo "한 번에 $MAX_DELETE개까지만 지웁니다. 나머지는 다음 실행에서."; break; }
+  if OUT="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$IID" \
+        --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
+    STATE="$OUT"
+  elif grep -q 'InvalidInstanceID.NotFound' <<< "$OUT"; then
+    STATE="not-found"
+  else
+    echo "$NODE($IID): AWS 조회 실패라 건너뜁니다: $OUT" >&2
+    continue
+  fi
+  case "$STATE" in
+    terminated|shutting-down|not-found)
+      kubectl delete node "$NODE" --ignore-not-found --wait=false
+      echo "Node 삭제: $NODE ($IID, EC2 상태 $STATE)"
+      DELETED=$((DELETED + 1)) ;;
+    *)
+      echo "$NODE($IID): NotReady지만 EC2가 $STATE 상태라 그대로 둡니다." ;;
+  esac
+done <<< "$CANDIDATES"
+SCRIPT
+chmod 0700 /usr/local/sbin/mulo-node-gc.sh
+
+cat > /etc/systemd/system/mulo-node-gc.service <<'UNIT'
+[Unit]
+Description=Delete Node objects whose EC2 instance is gone
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/mulo-node-gc.sh
+TimeoutStartSec=300
+UMask=0077
+UNIT
+
+cat > /etc/systemd/system/mulo-node-gc.timer <<'UNIT'
+[Unit]
+Description=Clean up Node objects of terminated EC2 every five minutes
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=60
+Unit=mulo-node-gc.service
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now mulo-etcd-snapshot.timer mulo-worker-token.timer mulo-node-gc.timer
+# 토큰은 지금 한 번 바로 게시한다. 스냅샷은 다음 정각에 실행된다.
+systemctl start mulo-worker-token.service
+systemctl list-timers 'mulo-*' --all --no-pager
+echo "$SELF_SHA" > "$STAMP"

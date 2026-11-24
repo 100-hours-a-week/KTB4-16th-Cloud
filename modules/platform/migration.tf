@@ -73,6 +73,11 @@ resource "aws_vpn_connection" "gcp" {
   tags = {
     Name = "${local.name}-gcp-${each.key}"
   }
+
+  lifecycle {
+    # 고객 게이트웨이(GCP 쪽 IP·ASN)가 바뀌면 연결을 고치지 않고 새로 만듭니다(터널 IP·PSK도 새로 발급).
+    replace_triggered_by = [aws_customer_gateway.gcp[each.key]]
+  }
 }
 
 # GCP가 BGP로 알린 앱·Cloud SQL 사설 대역을 Private 3개와 Data에 전파합니다.

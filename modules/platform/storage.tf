@@ -62,3 +62,39 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+
+# 버전 관리가 켜진 버킷은 삭제·덮어쓴 객체의 이전 버전이 계속 쌓입니다.
+# Loki는 compactor가 보존 기간이 지난 청크를 지우므로 이전 버전만 정리하면 됩니다.
+# etcd·Vault 백업은 1시간 단위 스냅샷이라 오래된 것부터 만료합니다.
+# images는 사용자 데이터라 자동 삭제 대상에서 뺍니다.
+resource "aws_s3_bucket_lifecycle_configuration" "storage" {
+  for_each = {
+    loki         = null
+    etcd-backup  = var.config.backup_retention_days
+    vault-backup = var.config.backup_retention_days
+  }
+  bucket = aws_s3_bucket.storage[each.key].id
+
+  rule {
+    id     = "expire-old-versions"
+    status = "Enabled"
+    filter {}
+
+    dynamic "expiration" {
+      for_each = each.value == null ? [] : [each.value]
+      content {
+        days = expiration.value
+      }
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.storage]
+}

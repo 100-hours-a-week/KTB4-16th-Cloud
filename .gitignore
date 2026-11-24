@@ -6,4 +6,10 @@
 backend.hcl
 *.tfplan
 tfplan*
+# terraform plan -out으로 만든 파일. 이름과 상관없이 민감한 값이 들어 있다.
+*plan
+*.plan
 crash.log
+.DS_Store
+*.tfvars.bak*
+__pycache__/
