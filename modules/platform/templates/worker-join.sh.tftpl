@@ -1,0 +1,145 @@
+#!/bin/bash
+
+# 새 EC2에서 cloud-init이 root 권한으로 실행할 스크립트다.
+# 명령 실패·정의하지 않은 변수·파이프 중간 실패가 있으면 중단한다.
+set -euo pipefail
+# 아래에서 생성할 가입 설정과 로그를 기본적으로 root만 읽게 한다.
+umask 077
+# 자동 실행 중 AWS 결과 보기 프로그램이 열리지 않게 한다.
+export AWS_PAGER=""
+
+# 이 세 값은 Terraform이 Launch Template을 만들 때 채운다.
+# REGION: AWS 리전, ROLE: 이 워커의 역할, PARAMETER: 가입 정보를 읽을 SSM 이름.
+REGION="${region}"
+ROLE="${node_group}"
+PARAMETER="${parameter_name}"
+
+# 성공·실패 모두 임시 설치 스크립트와 가입 설정을 지운다.
+trap 'rm -f /run/mulo-install-worker-ecr.sh /run/mulo-worker-join.json' EXIT
+
+# 실패한 줄 번호와 종료 코드만 기록한다. 명령이나 토큰 값을 로그에 출력하지 않는다.
+trap 'STATUS=$?; echo "Worker bootstrap failed: line=$LINENO status=$STATUS" >&2; exit "$STATUS"' ERR
+
+# kubelet.conf가 있으면 가입 이력이 있는 서버이므로 자동 초기화하지 않고 중단한다.
+if [[ -f /etc/kubernetes/kubelet.conf ]]; then
+  echo '이미 가입 이력이 있습니다. 가입 전 상태의 워커 AMI인지 확인하세요.' >&2
+  exit 1
+fi
+
+# Kubernetes와 containerd는 운영자가 AMI에 준비한 것을 사용한다.
+# 없는 Kubernetes 패키지를 임의 버전으로 설치하거나 업그레이드하지 않는다.
+for TOOL in kubeadm kubelet; do
+  if ! command -v "$TOOL" >/dev/null; then
+    echo "워커 AMI에 필요한 프로그램이 없습니다: $TOOL" >&2
+    exit 1
+  fi
+done
+systemctl is-active --quiet containerd
+
+# Ubuntu 워커에 가입 정보를 읽을 도구가 없으면 처음 부팅할 때 설치한다.
+# AWS CLI는 EC2 IAM 역할로 인증하므로 aws configure나 고정 액세스 키가 필요 없다.
+if ! command -v aws >/dev/null || ! command -v jq >/dev/null || \
+   ! command -v curl >/dev/null || [[ ! -s /etc/ssl/certs/ca-certificates.crt ]]; then
+  echo '가입에 필요한 AWS CLI·jq·curl·CA 인증서를 준비합니다.'
+  apt-get -o DPkg::Lock::Timeout=120 update
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 \
+    install -y --no-install-recommends awscli jq curl ca-certificates
+fi
+
+# EC2 자신의 정보만 알려 주는 주소(IMDS)에 접근할 임시 토큰을 받는다.
+# 이 토큰은 Kubernetes 가입 토큰과 별개다. 300초 동안 EC2 정보 조회에 사용한다.
+# -X PUT: 발급 요청. -H: 요청 헤더. -f: HTTP 오류를 실패 처리. -sS: 진행 표시 없이 오류만 표시.
+# 연결은 최대 3초, 요청 전체는 최대 10초 기다린다.
+IMDS_TOKEN="$(curl -fsS --connect-timeout 3 --max-time 10 -X PUT \
+  -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' \
+  http://169.254.169.254/latest/api/token)"
+
+# 받은 IMDS 토큰을 제시해 이 EC2의 ID·AZ·사설 IP 등이 담긴 JSON을 읽는다.
+# 169.254.169.254는 내부 NLB 주소가 아니라 EC2 메타데이터 전용 주소다.
+IDENTITY="$(curl -fsS --connect-timeout 3 --max-time 10 \
+  -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+  http://169.254.169.254/latest/dynamic/instance-identity/document)"
+
+# JSON에서 이 EC2의 식별값을 꺼낸다. -r: 따옴표 없이 출력. -e: 값이 없으면 실패 처리.
+# 인스턴스 ID는 Node 이름에, AZ는 label·providerID에, 사설 IP는 노드 통신 주소에 쓴다.
+INSTANCE_ID="$(jq -er '.instanceId' <<< "$IDENTITY")"
+AZ="$(jq -er '.availabilityZone' <<< "$IDENTITY")"
+NODE_IP="$(jq -er '.privateIp' <<< "$IDENTITY")"
+
+# 현재 워커에 수동 실행하는 것과 같은 ECR 설치 절차를 새 노드에도 적용한다.
+# 가입 전에는 kubelet을 재시작하지 않고, 아래 kubeadm join이 시작하게 한다.
+printf '%s' '${ecr_setup_base64}' | base64 --decode | gzip --decompress \
+  > /run/mulo-install-worker-ecr.sh
+bash /run/mulo-install-worker-ecr.sh --bootstrap
+rm -f /run/mulo-install-worker-ecr.sh
+
+# 가입 정보(토큰)가 SSM에 올라올 때까지 시간 제한 없이 기다렸다가 가입한다.
+# - 처음 구축할 때는 워커가 CP보다 먼저 뜬다. CP init과 토큰 게시(SSM association, 30분 주기)가
+#   언제 끝날지 모르므로 포기하지 않는다. 예전에는 1시간 뒤 포기해서 워커를 손으로 다시 띄워야 했다.
+# - 예전 클러스터의 토큰이 SSM에 남아 있거나 API 서버가 아직 준비되지 않아 가입이 실패하면,
+#   kubeadm reset으로 흔적을 지우고 1분 뒤 SSM을 다시 읽어 재시도한다.
+ATTEMPT=0
+while :; do
+  ATTEMPT=$((ATTEMPT + 1))
+  # SSM에서 값을 복호화해 읽고, 만료 15분 이상 남은 올바른 형식인지 검사한다.
+  if BUNDLE="$(aws ssm get-parameter --region "$REGION" \
+    --name "$PARAMETER" --with-decryption --query Parameter.Value --output text \
+    --cli-connect-timeout 5 --cli-read-timeout 15 2>/dev/null)" \
+    && jq -e '(.expiresAt > (now+900)) and
+      (.token|test("^[a-z0-9]{6}\\.[a-z0-9]{16}$")) and
+      (.caCertHash|test("^sha256:[a-f0-9]{64}$")) and
+      (.apiServerEndpoint|test("^[A-Za-z0-9.-]+:6443$"))' \
+      <<< "$BUNDLE" >/dev/null; then
+    # SSM 정보와 이 EC2의 정보를 합쳐 kubeadm이 읽을 가입 설정 파일을 만든다.
+    # --arg는 셸 변수를 jq 프로그램의 변수로 전달한다. 예: --arg role "$ROLE" → jq의 $role.
+    # 결과는 /run 아래 임시 파일에 저장한다. JSON 형식도 kubeadm --config로 읽을 수 있다.
+    jq --arg role "$ROLE" --arg id "$INSTANCE_ID" --arg az "$AZ" \
+      --arg region "$REGION" --arg ip "$NODE_IP" '
+      {
+        # kubeadm에게 초기 클러스터 생성이 아니라 기존 클러스터 가입 설정임을 알려 준다.
+        apiVersion:"kubeadm.k8s.io/v1beta4",
+        kind:"JoinConfiguration",
+        discovery:{bootstrapToken:{
+          # 앞에서 SSM으로 읽은 API 주소·가입 토큰·CA 해시를 사용한다.
+          apiServerEndpoint:.apiServerEndpoint,
+          token:.token,
+          caCertHashes:[.caCertHash]
+        }},
+        nodeRegistration:{
+          # 이 EC2의 instance ID를 Kubernetes Node 이름으로 사용한다.
+          name:$id,
+          # kubelet이 컨테이너 실행을 요청할 containerd의 로컬 소켓 주소다.
+          criSocket:"unix:///run/containerd/containerd.sock",
+          # 네 역할 모두 해당 역할의 toleration을 가진 Pod만 새로 배치하도록 제한한다.
+          taints:[{key:"dedicated",value:$role,effect:"NoSchedule"}],
+          kubeletExtraArgs:[
+            # 노드 역할·AZ·리전을 label로 등록한다. Pod와 CA가 배치 대상을 구분하는 기준이다.
+            {name:"node-labels",value:("workload="+$role+
+              ",topology.kubernetes.io/zone="+$az+
+              ",topology.kubernetes.io/region="+$region)},
+            # CA가 이 Kubernetes Node에 해당하는 실제 EC2를 찾을 수 있도록 연결한다.
+            {name:"provider-id",value:("aws:///"+$az+"/"+$id)},
+            # 노드의 통신 주소로 이 EC2의 사설 IP를 사용한다.
+            {name:"node-ip",value:$ip}
+          ]
+        }
+      }' <<< "$BUNDLE" > /run/mulo-worker-join.json
+
+    # 일반 출력과 오류를 root 전용 임시 로그에 모아 cloud-init 출력에 토큰이 섞이지 않게 한다.
+    if kubeadm join --config /run/mulo-worker-join.json > /run/mulo-worker-join.log 2>&1; then
+      break
+    fi
+    echo "가입 실패(시도 $ATTEMPT). /run/mulo-worker-join.log를 확인하세요. 1분 뒤 SSM을 다시 읽어 재시도합니다." >&2
+    kubeadm reset -f > /run/mulo-worker-reset.log 2>&1 || true
+    sleep 60
+    continue
+  fi
+  # 읽기 실패·만료 임박·내용 오류: 20초 뒤 다시 읽는다. 10분마다 아직 기다리는 중이라고 남긴다.
+  if (( ATTEMPT % 30 == 0 )); then
+    echo "아직 유효한 가입 정보가 없습니다. 계속 기다립니다(약 $((ATTEMPT / 3))분 경과). CP init과 토큰 게시를 확인하세요." >&2
+  fi
+  sleep 20
+done
+
+# 가입 명령이 성공한 경우에만 역할과 instance ID를 기록한다.
+echo "Joined workload=$ROLE instance=$INSTANCE_ID"

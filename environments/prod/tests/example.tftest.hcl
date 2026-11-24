@@ -1,6 +1,7 @@
 # 실행: terraform test -var-file=terraform.tfvars.example
 mock_provider "aws" {
   mock_data "aws_partition" { defaults = { partition = "aws" } }
+  mock_data "aws_availability_zones" { defaults = { names = ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"], zone_ids = ["apne2-az1", "apne2-az2", "apne2-az3"] } }
   mock_data "aws_ami" { defaults = { architecture = "x86_64", root_device_type = "ebs", root_device_name = "/dev/sda1" } }
 }
 run "example_inputs" {
@@ -14,11 +15,12 @@ run "example_inputs" {
     error_message = "환경 접두사가 일치해야 합니다."
   }
   assert {
-    condition     = length(module.platform.compute.worker_asgs) == 4 && alltrue([for w in values(var.config.workers) : w.min == 1 && w.desired == 1 && length(w.availability_zones) == 1]) && length(module.platform.endpoints.databases) == 3
-    error_message = "현재 구축용 입력은 역할별 1대씩 워커 ASG 4개와 RDS 인스턴스 3개를 생성해야 합니다."
+    condition     = length(module.platform.compute.worker_asgs) == 8 && alltrue([for w in values(var.config.workers) : w.min == 2 && w.desired == 2 && length(w.availability_zones) == 2]) && sum([for w in values(var.config.workers) : w.desired]) == 8 && length(module.platform.endpoints.databases) == 3
+    error_message = "현재 구축용 입력은 역할별 2개 AZ에 1대씩(총 8대) 워커 ASG 8개와 RDS 인스턴스 3개를 생성해야 합니다."
   }
   assert {
-    condition     = length(module.platform.migration.vpn_connections) == 2 && length(module.platform.migration.route_propagation_tables) == 4 && module.platform.migration.gcp_app_cidrs == toset(["10.20.0.0/24"]) && module.platform.migration.gcp_database_cidrs == toset(["10.91.0.0/16"]) && module.platform.migration.route53_zone.name == var.config.route53_zone
-    error_message = "환경별 GCP 앱·Cloud SQL 대역과 VPN·경로 전파·DNS 예시 입력이 일치해야 합니다."
+    # GCP→AWS 이전이 끝나 마이그레이션 VPN(migration_vpn)은 terraform.tfvars에서 뺐다(2026-11-23, AWS에서도 삭제됨).
+    condition     = length(module.platform.migration.vpn_connections) == 0 && length(module.platform.migration.route_propagation_tables) == 0
+    error_message = "마이그레이션 VPN은 만들지 않아야 합니다."
   }
 }

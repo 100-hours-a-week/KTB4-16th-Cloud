@@ -18,10 +18,18 @@ resource "aws_vpc_security_group_egress_rule" "outbound" {
 
 locals {
   node_roles = toset(["control-plane", "system", "api", "chat", "ai"])
-  # 같은 SG를 참조하는 오버레이도 UDP 4789만 허용합니다. NodePort 전체 범위는 열지 않습니다.
+  # Pod 오버레이와 Calico 제어 통신을 필요한 포트·대상에 한정합니다.
+  # Calico IPPool은 vxlanMode: Always여야 합니다. CrossSubnet이면 같은 서브넷의 Pod 패킷이
+  # 캡슐화 없이 Pod IP로 오가는데, 보안 그룹은 이 Pod IP를 어느 규칙과도 일치시키지 않아 버립니다.
   fixed_rules = {
     vxlan = {
       target = "overlay", source = "overlay", protocol = "udp", from = 4789, to = 4789
+    }
+
+    # 현재 CP에서 실행 중인 Typha에 클러스터 노드(CP·워커)가 접속하도록 허용합니다.
+    # source의 overlay SG는 모든 클러스터 노드에 붙어 있습니다.
+    calico_typha = {
+      target = "control-plane", source = "overlay", protocol = "tcp", from = 5473, to = 5473
     }
 
     api_backend = {

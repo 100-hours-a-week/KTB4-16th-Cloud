@@ -49,6 +49,32 @@ output "endpoints" {
   }
 }
 
+output "platform_access" {
+  description = "운영 도구 접속 URL과 DNS 연결 대상. DNS 위임 및 Kubernetes 라우트 적용 후 접속할 수 있습니다."
+  value = {
+    for name, service in var.config.platform_services : name => {
+      url        = "${local.platform_scheme}://${service.hostname}"
+      hostname   = service.hostname
+      dns_target = aws_lb.web.dns_name
+      dns_record = try(aws_route53_record.platform[name].fqdn, null)
+    }
+  }
+}
+
+output "certificate" {
+  description = "요청한 ACM 인증서. status가 ISSUED가 되면 arn을 config.certificate_arn에 넣습니다."
+  # 리소스가 실제로 있을 때만 읽습니다. 설정만 켜고 아직 만들지 않은 상태(refresh, destroy)에서도 오류가 나지 않습니다.
+  value = length(aws_acm_certificate.web) == 0 ? null : {
+    arn    = aws_acm_certificate.web[0].arn
+    status = aws_acm_certificate.web[0].status
+  }
+}
+
+output "platform_http_routes" {
+  description = "Envoy Gateway용 HTTPRoute YAML. 별도로 검토한 뒤 kubectl apply -f로 적용하세요."
+  value       = local.platform_http_routes
+}
+
 output "storage" {
   value = {
     buckets = {
@@ -110,3 +136,20 @@ output "migration" {
   }
 }
 
+
+output "github_actions_ecr_push_roles" {
+  description = "GitHub Actions가 aws-actions/configure-aws-credentials의 role-to-assume으로 쓰는 ECR push 역할 ARN."
+  value = {
+    for name, r in aws_iam_role.github_ecr_push : name => r.arn
+  }
+}
+
+output "fis" {
+  description = "장애 대응 훈련(FIS) 실험 템플릿 ID와 중단 조건 알람"
+  value = {
+    az_outage    = { for az, t in aws_fis_experiment_template.az_outage : az => t.id }
+    stop_general = { for az, t in aws_fis_experiment_template.stop_general : az => t.id }
+    stop_alarm   = aws_cloudwatch_metric_alarm.fis_stop.alarm_name
+    log_group    = aws_cloudwatch_log_group.fis.name
+  }
+}

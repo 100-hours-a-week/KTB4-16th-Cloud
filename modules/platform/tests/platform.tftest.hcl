@@ -1,5 +1,6 @@
 mock_provider "aws" {
   mock_data "aws_partition" { defaults = { partition = "aws" } }
+  mock_data "aws_availability_zones" { defaults = { names = ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"], zone_ids = ["apne2-az1", "apne2-az2", "apne2-az3"] } }
   mock_data "aws_ami" { defaults = { architecture = "x86_64", root_device_type = "ebs", root_device_name = "/dev/sda1" } }
 }
 variables {
@@ -75,11 +76,11 @@ run "production_boundaries" {
     error_message = "CP 3대는 공인 IP 없이 생성되어야 합니다."
   }
   assert {
-    condition     = aws_lb.api.internal && !aws_lb.web.internal && aws_lb_listener.api.port == 6443 && aws_lb_listener.https.port == 443
+    condition     = aws_lb.api.internal && !aws_lb.web.internal && aws_lb_listener.api.port == 6443 && aws_lb_listener.https[0].port == 443 && one(aws_lb_listener.http.default_action).type == "redirect"
     error_message = "클러스터 API와 인터넷 트래픽의 진입점이 분리되어야 합니다."
   }
   assert {
-    condition     = one(aws_lb_listener_rule.public.action).type == "forward" && one(one(aws_lb_listener_rule.public.condition).host_header).values == toset(var.config.public_hosts) && one(aws_lb_listener.https.default_action).type == "fixed-response" && one(one(aws_lb_listener.https.default_action).fixed_response).status_code == "403"
+    condition     = one(aws_lb_listener_rule.public.action).type == "forward" && one(one(aws_lb_listener_rule.public.condition).host_header).values == toset(var.config.public_hosts) && one(aws_lb_listener.https[0].default_action).type == "fixed-response" && one(one(aws_lb_listener.https[0].default_action).fixed_response).status_code == "403"
     error_message = "공개 앱 호스트만 전달하고 미등록 호스트는 403으로 거부해야 합니다."
   }
   assert {
@@ -95,12 +96,38 @@ run "production_boundaries" {
     error_message = "drain 연동 없이 자동 노드 교체를 활성화하면 안 됩니다."
   }
   assert {
-    condition     = length(aws_db_instance.database) == 3 && alltrue([for db in aws_db_instance.database : !db.publicly_accessible && db.storage_encrypted && db.manage_master_user_password && db.multi_az])
+    condition     = length(aws_db_instance.database) == 3 && alltrue([for db in aws_db_instance.database : !db.publicly_accessible && db.storage_encrypted && !coalesce(db.manage_master_user_password, false) && db.password_wo_version == 1 && db.multi_az])
     error_message = "RDS 3개는 사설 Multi-AZ, 암호화, 관리형 DB 비밀번호를 사용해야 합니다."
   }
   assert {
     condition     = length(aws_iam_role.pod) == 4 && alltrue([for b in aws_s3_bucket_public_access_block.storage : b.block_public_policy && b.block_public_acls && b.restrict_public_buckets])
     error_message = "Pod IAM 역할 분리와 S3 비공개 설정이 필요합니다."
+  }
+}
+run "production_without_certificate" {
+  command = plan
+  variables {
+    config = {
+      account_id   = "123456789012"
+      ami_id       = "ami-0123456789abcdef0"
+      vpc_cidr     = "10.60.0.0/16"
+      azs          = ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
+      public_hosts = ["mulo.example.com"]
+      workers = {
+        system = { availability_zones = ["ap-northeast-2c"], instance_type = "m7i.large", min = 1, desired = 1 }
+        api    = { availability_zones = ["ap-northeast-2a"], instance_type = "m7i.large", min = 1, desired = 1 }
+        chat   = { availability_zones = ["ap-northeast-2b"], instance_type = "m7i.large", min = 1, desired = 1 }
+        ai     = { availability_zones = ["ap-northeast-2b"], instance_type = "m7i.xlarge", min = 1, desired = 1 }
+      }
+    }
+  }
+  assert {
+    condition     = length(aws_lb_listener.https) == 0 && aws_lb_listener.http.port == 80 && one(aws_lb_listener.http.default_action).type == "fixed-response" && length(one(aws_lb_listener.http.default_action).redirect) == 0
+    error_message = "인증서를 생략하면 HTTPS 리스너와 리다이렉트 없이 HTTP 80으로 구성되어야 합니다."
+  }
+  assert {
+    condition     = one(aws_lb_listener_rule.public.action).type == "forward" && one(one(aws_lb_listener_rule.public.condition).host_header).values == toset(var.config.public_hosts) && one(one(aws_lb_listener.http.default_action).fixed_response).status_code == "403"
+    error_message = "HTTP에서도 공개 앱 호스트만 전달하고 미등록 호스트는 403으로 거부해야 합니다."
   }
 }
 run "development_configuration" {
